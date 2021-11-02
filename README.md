@@ -1,5 +1,7 @@
 # Container-Explorer
 
+[![lint](https://github.com/google/container-explorer/actions/workflows/lint.yml/badge.svg)](https://github.com/google/container-explorer/actions/workflows/lint.yml)
+
 Container-Explorer is a tool to explore containerd installation on a mounted image.
 
 Container-Explorer attempts to provide the similar exploration functionalities provided by `ctr` utility.
