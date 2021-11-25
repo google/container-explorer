@@ -296,7 +296,7 @@ func ContainerOverlayPaths(ctx context.Context, parents []string, root string, d
 				lowerdir = ldir
 				continue
 			}
-			lowerdir = fmt.Sprintf("%s:%s", ldir, lowerdir)
+			lowerdir = fmt.Sprintf("%s:%s", lowerdir, ldir)
 		}
 		return nil
 	}); err != nil {
