@@ -16,7 +16,7 @@ EXIT_FAILURE=1
 #
 display_message()
 {
-    local maxSize=90
+    local maxSize=100
     local exitStatus=$1
     local MESSAGE="$2"
     local padding=""
@@ -47,13 +47,14 @@ display_message()
 assert_containerd_namespace()
 {
     local NAMESPACE="$1"
+    local expectedStatus="$2"
     local exitStatus=${EXIT_SUCCESS}
 
     ns=`sudo go run "${CONTAINER_EXPLORER_PROGRAM}" -i "${MOUNT_POINT}" list namespaces | grep ${NAMESPACE} | tr -d '[:space:]'`
     if [ "${ns}" != "${NAMESPACE}" ]; then
         exitStatus=${EXIT_FAILURE}
     fi
-    display_message ${exitStatus} "Checking containerd namespace ${NAMESPACE}"
+    display_message ${exitStatus} "Assert ${expectedStatus}: Checking containerd namespace ${NAMESPACE}"
 }
 
 # Checks the availability of containerd image and exits if unavailable
@@ -66,13 +67,14 @@ assert_containerd_image()
 {
     local NAMESPACE=$1
     local IMAGE_PATH=$2
+    local expectedStatus=$3
     local exitStatus=${EXIT_SUCCESS}
 
     imgpath=`sudo go run "${CONTAINER_EXPLORER_PROGRAM}" -n ${NAMESPACE} -i "${MOUNT_POINT}" list images | grep ${IMAGE_PATH} | awk '{print $2}' | tr -d '[:space:]'`
     if [ "${imgpath}" != "${IMAGE_PATH}" ]; then
         exitStatus=${EXIT_FAILURE}
     fi
-    display_message ${exitStatus} "Checking containerd image ${IMAGE_PATH} for namespace ${NAMESPACE}"
+    display_message ${exitStatus} "Assert ${expectedStatus}: Checking containerd image ${IMAGE_PATH} for namespace ${NAMESPACE}"
 }
 
 # Checks the availability of containerd container name and exits if unavailable
@@ -85,13 +87,14 @@ assert_containerd_container()
 {
     local NAMESPACE=$1
     local CONTAINER_NAME=$2
+    local expectedStatus=$3
     local exitStatus=${EXIT_SUCCESS}
 
     cn=`sudo go run "${CONTAINER_EXPLORER_PROGRAM}" -n ${NAMESPACE} -i "${MOUNT_POINT}" list containers | grep ${CONTAINER_NAME} | awk '{print $2}' | tr -d '[:space:]'`
     if [ "${cn}" != "${CONTAINER_NAME}" ]; then
         exitStatus=${EXIT_FAILURE}
     fi
-    display_message ${exitStatus} "Checking containerd container ${CONTAINER_NAME} for namespace ${NAMESPACE}"
+    display_message ${exitStatus} "Assert ${expectedStatus}: Checking containerd container ${CONTAINER_NAME} for namespace ${NAMESPACE}"
 }
 
 # Checks if a container is correctly mounted to a mount point
@@ -108,13 +111,14 @@ assert_container_mount_path()
 {
     local CONTAINER_NAME=$1
     local CONTAINER_MOUNT_POINT="$2"
+    local expectedStatus="$3"
     local exitStatus=${EXIT_SUCCESS}
 
     # check the mounted container
     if [ ! -d "${CONTAINER_MOUNT_POINT}/etc" ]; then
         exitStatus=${EXIT_FAILURE}
     fi
-    display_message ${exitStatus} "Checking container mount ${CONTAINER_NAME} at ${CONTAINER_MOUNT_POINT}"
+    display_message ${exitStatus} "Assert ${expectedStatus}: Checking container mount ${CONTAINER_NAME} at ${CONTAINER_MOUNT_POINT}"
 }
 
 # Checks that a containerd container is mounted at a given mount point
@@ -129,6 +133,7 @@ assert_containerd_mount()
     local NAMESPACE=$1
     local CONTAINER_NAME=$2
     local CONTAINER_MOUNT_POINT="$3"
+    local expectedStatus="$4"
     local exitStatus=${EXIT_SUCCESS}
 
     # create container mount point
@@ -139,7 +144,7 @@ assert_containerd_mount()
     # mount the container
     sudo go run "${CONTAINER_EXPLORER_PROGRAM}" -n ${NAMESPACE} -i "${MOUNT_POINT}" mount ${CONTAINER_NAME} ${CONTAINER_MOUNT_POINT}
 
-    assert_container_mount_path ${CONTAINER_NAME} "${CONTAINER_MOUNT_POINT}"
+    assert_container_mount_path ${CONTAINER_NAME} "${CONTAINER_MOUNT_POINT}" ${expectedStatus}
     # check the mounted container
     #if [ ! -d "${CONTAINER_MOUNT_POINT}/etc" ]; then
     #    exitStatus=${EXIT_FAILURE}
@@ -175,12 +180,12 @@ assert_containerd_mount_all()
     if [ ! -d "${CONTAINER_MOUNT_POINT}" ]; then
         exitStatus=${EXIT_FAILURE}
     fi
-    display_message ${exitStatus} "Checking all containers' mount point ${CONTAINER_MOUNT_POINT}"
+    display_message ${exitStatus} "Assert SUCCESS: Checking all containers' mount point ${CONTAINER_MOUNT_POINT}"
 
 
     for container in "${CONTAINERS[@]}"
     do
-        assert_container_mount_path ${container} "${CONTAINER_MOUNT_POINT}/${container}"
+        assert_container_mount_path ${container} "${CONTAINER_MOUNT_POINT}/${container}" SUCCESS
     done
     # check mount point for nginx-specimen
     #if [ ! -d "${CONTAINER_MOUNT_POINT}/${NGINX_CONTAINER}/etc" ]; then
@@ -199,6 +204,22 @@ assert_containerd_mount_all()
     sudo rm -rf ${CONTAINER_MOUNT_POINT}
 }
 
+
+# Checks Google Kubernetes Engine (GKE) containerd databases
+#
+assert_gke_containers()
+{
+    local imageSources="docker.io/library/nginx:latest sha256:5440bb4e13af5e366f41f11af5c57f3df13ab987829718d22c01b35acbc83cdb"
+    local exitStatus=${EXIT_FAILURE}
+
+    images=`go run "${CONTAINER_EXPLORER_PROGRAM}" -m test_data/gke/node/meta.db -s test_data/gke/node/manifest.db list containers --skip-known-containers | grep k8s.io | awk '{print $3}'`
+
+    if [ "${images}"=="${imageSources}" ]; then
+        exitStatus=${EXIT_SUCCESS}
+    fi
+
+    display_message ${exitStatus} "Assert SUCCESS: Checking GKE containers (--skip-known-containers)"
+}
 
 # main
 set -e
@@ -221,22 +242,25 @@ if [ ! -d "${CONTAINER_ROOT}" ]; then
 fi
 
 # Check containerd namespaces
-assert_containerd_namespace default
-assert_containerd_namespace dfirlabs
-assert_containerd_namespace non-prod
+assert_containerd_namespace default SUCCESS
+assert_containerd_namespace dfirlabs SUCCESS
+assert_containerd_namespace non-prod FAILURE
 
 # Check containerd images
-assert_containerd_image default docker.io/library/nginx:latest
-assert_containerd_image dfirlabs docker.io/library/redis:latest
-assert_containerd_image prod docker.io/library/debian:buster
+assert_containerd_image default docker.io/library/nginx:latest SUCCESS
+assert_containerd_image dfirlabs docker.io/library/redis:latest SUCCESS
+assert_containerd_image prod docker.io/library/debian:buster FAILURE
 
 # Check containerd containers
-assert_containerd_container default nginx-specimen
-assert_containerd_container dfirlabs redis-specimen
-assert_containerd_container prod debian-buster-specimen
+assert_containerd_container default nginx-specimen SUCCESS
+assert_containerd_container dfirlabs redis-specimen SUCCESS
+assert_containerd_container prod debian-buster-specimen FAILURE
 
 # Check containerd mount
-assert_containerd_mount default nginx-specimen /tmp/mnt/nginx-specimen
+assert_containerd_mount default nginx-specimen /tmp/mnt/nginx-specimen SUCCESS
 
 # Check all containers mount
 assert_containerd_mount_all /tmp/mnt/containers ${CONTAINERS[@]}
+
+# Check GKE containers and skip known containers
+assert_gke_containers

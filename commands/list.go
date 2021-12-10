@@ -39,6 +39,36 @@ const (
 	tsLayout = "2006-01-02T15:04:05.000000000Z"
 )
 
+var knownContainerImage map[string]string
+
+func init() {
+    knownContainerImage = make(map[string]string)
+
+    // load GKE supporting container image files
+    loadGKEContainerImages()
+}
+
+// gkeContainers loads support GKE containers.
+func loadGKEContainerImages() {
+	knownContainerImage["asia.gcr.io/gke-release-staging/cluster-proportional-autoscaler-amd64"] = "gke"
+  	knownContainerImage["gcr.io/k8s-ingress-image-push/ingress-gce-404-server-with-metrics"] = "gke"
+  	knownContainerImage["gke.gcr.io/cluster-proportional-autoscaler"] = "gke"
+  	knownContainerImage["gke.gcr.io/csi-node-driver-registrar"] = "gke"
+  	knownContainerImage["gke.gcr.io/event-exporter"] = "gke"
+  	knownContainerImage["gke.gcr.io/fluent-bit"] = "gke"
+  	knownContainerImage["gke.gcr.io/fluent-bit-gke-exporter"] = "gke"
+  	knownContainerImage["gke.gcr.io/gcp-compute-persistent-disk-csi-driver"] = "gke"
+  	knownContainerImage["gke.gcr.io/gke-metrics-agent"] = "gke"
+  	knownContainerImage["gke.gcr.io/k8s-dns-dnsmasq-nanny"] = "gke"
+  	knownContainerImage["gke.gcr.io/k8s-dns-kube-dns"] = "gke"
+  	knownContainerImage["gke.gcr.io/k8s-dns-sidecar"] = "gke"
+ 	knownContainerImage["gke.gcr.io/kube-proxy-amd64"] = "gke"
+  	knownContainerImage["gke.gcr.io/prometheus-to-sd"] = "gke"
+  	knownContainerImage["gke.gcr.io/proxy-agent"] = "gke"
+  	knownContainerImage["k8s.gcr.io/metrics-server/metrics-server"] = "gke"
+  	knownContainerImage["k8s.gcr.io/pause"] = "gke"
+}
+
 var ListCommand = cli.Command{
 	Name:    "list",
 	Aliases: []string{"ls"},
@@ -85,11 +115,42 @@ var listNamespaces = cli.Command{
 	},
 }
 
+
+// isKnownContainerImage returns true if the image name
+// is in knownContainerImage map.
+func isKnownContainerImage(image string) bool {
+	if strings.Contains(image, "@") {
+		imageBase := strings.Split(image, "@")[0]
+		k8sType := knownContainerImage[imageBase]
+
+		if k8sType != "" {
+			return true
+		}
+	}
+
+    if strings.Contains(image, ":") {
+        imageBase := strings.Split(image, ":")[0]
+        k8sType := knownContainerImage[imageBase]
+
+        if k8sType != "" {
+            return true
+        }
+    }
+
+    return false
+}
+
 var listContainers = cli.Command{
 	Name:        "containers",
 	Aliases:     []string{"c"},
 	Usage:       "list containers",
 	Description: "list all containers",
+    Flags: append([]cli.Flag{
+        cli.BoolFlag{
+        Name: "skip-known-containers",
+        Usage: "Skip known containers",
+        },
+    }),
 	Action: func(clictx *cli.Context) error {
 
 		// open bolt database
@@ -126,12 +187,13 @@ var listContainers = cli.Command{
 
 			// handle namespacess without containers
 			if results == nil {
-				v := make(map[string]interface{})
-				v["Namespace"] = ns
-				v["Message"] = "No containers in this namespace"
-
-				data, _ := json.MarshalIndent(v, "", " ")
-				fmt.Println(string(data))
+        		fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
+        		ns,
+          		"", // ID
+          		"", // Image
+          		"", // CreatedAt
+          		"") // labels
+			  
 				continue
 			}
 
@@ -145,6 +207,13 @@ var listContainers = cli.Command{
 				if labels == "" {
 					labels = "-"
 				}
+
+        // Skip the known container images
+        if clictx.Bool("skip-known-containers") {
+            if isKnownContainerImage(result.Image) {
+                continue
+            }
+        }
 
 				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
 					ns,
