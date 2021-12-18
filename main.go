@@ -75,6 +75,7 @@ func main() {
 		commands.ListCommand,
 		commands.MountCommand,
 		commands.MountAllCommand,
+		commands.ContainerCommand,
 	}
 
 	app.Before = func(context *cli.Context) error {
