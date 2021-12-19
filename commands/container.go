@@ -19,6 +19,9 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/metadata"
@@ -37,6 +40,7 @@ var ContainerCommand = cli.Command{
 	Usage:   "provide container related information",
 	Subcommands: cli.Commands{
 		containerInfo,
+		containerList,
 	},
 }
 
@@ -132,4 +136,94 @@ func printAsJSON(v interface{}) {
 	}
 
 	fmt.Println(string(b))
+}
+
+var containerList = cli.Command{
+	Name:        "list",
+	Aliases:     []string{"ls"},
+	Usage:       "list containers",
+	Description: "list all containers",
+	Flags: append([]cli.Flag{
+		cli.BoolFlag{
+			Name:  "skip-known-containers",
+			Usage: "Skip known containers",
+		},
+	}),
+	Action: func(clictx *cli.Context) error {
+
+		// open bolt database
+		ctx, _, db, cancel, err := ctrmeta.GetContainerEnvironment(clictx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cancel()
+
+		store := metadata.NewContainerStore(metadata.NewDB(db, nil, nil))
+
+		// use namespaces from the database
+		nss, err := ctrmeta.GetNamespaces(ctx, db)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if nss == nil {
+			log.Info("namespace bucket does not exist")
+		}
+
+		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
+		defer tw.Flush()
+		fmt.Fprintf(tw, "\nNAMESPACE\tCONTAINER NAME\tIMAGE\tCREATED AT\tLABELS\n")
+
+		for _, ns := range nss {
+			ctx = namespaces.WithNamespace(ctx, ns)
+			var filters []string
+
+			results, err := store.List(ctx, filters...)
+			if err != nil {
+				log.WithField("namespace", ns).Error(err)
+				continue
+			}
+
+			// handle namespacess without containers
+			if results == nil {
+				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
+					ns,
+					"", // ID
+					"", // Image
+					"", // CreatedAt
+					"") // labels
+
+				continue
+			}
+
+			// handle namespaces with containers
+			for _, result := range results {
+				var labelStrings []string
+				for k, v := range result.Labels {
+					labelStrings = append(labelStrings, strings.Join([]string{k, v}, "="))
+				}
+				labels := strings.Join(labelStrings, ",")
+				if labels == "" {
+					labels = "-"
+				}
+
+				// Skip the known container images
+				if clictx.Bool("skip-known-containers") {
+					if isKnownContainerImage(result.Image) {
+						continue
+					}
+				}
+
+				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
+					ns,
+					result.ID,
+					result.Image,
+					result.CreatedAt.Format(tsLayout),
+					labels)
+
+			}
+		} //__end_of_nss__
+
+		// default return
+		return nil
+	},
 }
