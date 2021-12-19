@@ -97,6 +97,27 @@ assert_containerd_container()
     display_message ${exitStatus} "Assert ${expectedStatus}: Checking containerd container ${CONTAINER_NAME} for namespace ${NAMESPACE}"
 }
 
+
+# Checks the availability of containerd container name and exits if unavailable
+#
+# Arguments:
+#   a string containing containerd namespace
+#   a string contianing containerd container name
+#
+assert_container_list()
+{
+    local NAMESPACE=$1
+    local CONTAINER_NAME=$2
+    local expectedStatus=$3
+    local exitStatus=${EXIT_SUCCESS}
+
+    cn=`sudo go run "${CONTAINER_EXPLORER_PROGRAM}" -n ${NAMESPACE} -i "${MOUNT_POINT}" container list | grep ${CONTAINER_NAME} | awk '{print $2}' | tr -d '[:space:]'`
+    if [ "${cn}" != "${CONTAINER_NAME}" ]; then
+        exitStatus=${EXIT_FAILURE}
+    fi
+    display_message ${exitStatus} "Assert ${expectedStatus}: Checking container list ${CONTAINER_NAME} for namespace ${NAMESPACE}"
+}
+
 # Checks if a container is correctly mounted to a mount point
 #
 # This function assumes that a correctly mounted container must
@@ -255,6 +276,11 @@ assert_containerd_image prod docker.io/library/debian:buster FAILURE
 assert_containerd_container default nginx-specimen SUCCESS
 assert_containerd_container dfirlabs redis-specimen SUCCESS
 assert_containerd_container prod debian-buster-specimen FAILURE
+
+# Check container list
+assert_container_list default nginx-specimen SUCCESS
+assert_container_list dfirlabs redis-specimen SUCCESS
+assert_container_list prod debian-buster-specimen FAILURE
 
 # Check containerd mount
 assert_containerd_mount default nginx-specimen /tmp/mnt/nginx-specimen SUCCESS
