@@ -171,7 +171,7 @@ var containerList = cli.Command{
 
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
-		fmt.Fprintf(tw, "\nNAMESPACE\tCONTAINER NAME\tIMAGE\tCREATED AT\tLABELS\n")
+		fmt.Fprintf(tw, "\nNAMESPACE\tCONTAINER NAME\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT\tLABELS\n")
 
 		for _, ns := range nss {
 			ctx = namespaces.WithNamespace(ctx, ns)
@@ -188,6 +188,7 @@ var containerList = cli.Command{
 				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
 					ns,
 					"", // ID
+					"", // containerHostname
 					"", // Image
 					"", // CreatedAt
 					"") // labels
@@ -213,9 +214,32 @@ var containerList = cli.Command{
 					}
 				}
 
-				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
+				var containerHostname string = ""
+
+				if result.Spec != nil && result.Spec.Value != nil {
+					var v spec.Spec
+					json.Unmarshal(result.Spec.Value, &v)
+
+					if v.Hostname != "" {
+						containerHostname = v.Hostname
+					} else {
+
+						for _, kv := range v.Process.Env {
+							if strings.HasPrefix(kv, "HOSTNAME=") {
+								containerHostname = strings.TrimSpace(strings.Split(kv, "=")[1])
+								break
+							}
+						}
+					}
+					log.WithFields(log.Fields{
+						"containerHostname": v.Hostname,
+					}).Debug("Specs data")
+				}
+
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%v\t%s\n",
 					ns,
 					result.ID,
+					containerHostname,
 					result.Image,
 					result.CreatedAt.Format(tsLayout),
 					labels)

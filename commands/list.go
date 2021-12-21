@@ -29,6 +29,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/google/container-explorer/ctrmeta"
 	"github.com/opencontainers/go-digest"
+	spec "github.com/opencontainers/runtime-spec/specs-go"
 	bolt "go.etcd.io/bbolt"
 
 	log "github.com/sirupsen/logrus"
@@ -42,31 +43,31 @@ const (
 var knownContainerImage map[string]string
 
 func init() {
-    knownContainerImage = make(map[string]string)
+	knownContainerImage = make(map[string]string)
 
-    // load GKE supporting container image files
-    loadGKEContainerImages()
+	// load GKE supporting container image files
+	loadGKEContainerImages()
 }
 
 // gkeContainers loads support GKE containers.
 func loadGKEContainerImages() {
 	knownContainerImage["asia.gcr.io/gke-release-staging/cluster-proportional-autoscaler-amd64"] = "gke"
-  	knownContainerImage["gcr.io/k8s-ingress-image-push/ingress-gce-404-server-with-metrics"] = "gke"
-  	knownContainerImage["gke.gcr.io/cluster-proportional-autoscaler"] = "gke"
-  	knownContainerImage["gke.gcr.io/csi-node-driver-registrar"] = "gke"
-  	knownContainerImage["gke.gcr.io/event-exporter"] = "gke"
-  	knownContainerImage["gke.gcr.io/fluent-bit"] = "gke"
-  	knownContainerImage["gke.gcr.io/fluent-bit-gke-exporter"] = "gke"
-  	knownContainerImage["gke.gcr.io/gcp-compute-persistent-disk-csi-driver"] = "gke"
-  	knownContainerImage["gke.gcr.io/gke-metrics-agent"] = "gke"
-  	knownContainerImage["gke.gcr.io/k8s-dns-dnsmasq-nanny"] = "gke"
-  	knownContainerImage["gke.gcr.io/k8s-dns-kube-dns"] = "gke"
-  	knownContainerImage["gke.gcr.io/k8s-dns-sidecar"] = "gke"
- 	knownContainerImage["gke.gcr.io/kube-proxy-amd64"] = "gke"
-  	knownContainerImage["gke.gcr.io/prometheus-to-sd"] = "gke"
-  	knownContainerImage["gke.gcr.io/proxy-agent"] = "gke"
-  	knownContainerImage["k8s.gcr.io/metrics-server/metrics-server"] = "gke"
-  	knownContainerImage["k8s.gcr.io/pause"] = "gke"
+	knownContainerImage["gcr.io/k8s-ingress-image-push/ingress-gce-404-server-with-metrics"] = "gke"
+	knownContainerImage["gke.gcr.io/cluster-proportional-autoscaler"] = "gke"
+	knownContainerImage["gke.gcr.io/csi-node-driver-registrar"] = "gke"
+	knownContainerImage["gke.gcr.io/event-exporter"] = "gke"
+	knownContainerImage["gke.gcr.io/fluent-bit"] = "gke"
+	knownContainerImage["gke.gcr.io/fluent-bit-gke-exporter"] = "gke"
+	knownContainerImage["gke.gcr.io/gcp-compute-persistent-disk-csi-driver"] = "gke"
+	knownContainerImage["gke.gcr.io/gke-metrics-agent"] = "gke"
+	knownContainerImage["gke.gcr.io/k8s-dns-dnsmasq-nanny"] = "gke"
+	knownContainerImage["gke.gcr.io/k8s-dns-kube-dns"] = "gke"
+	knownContainerImage["gke.gcr.io/k8s-dns-sidecar"] = "gke"
+	knownContainerImage["gke.gcr.io/kube-proxy-amd64"] = "gke"
+	knownContainerImage["gke.gcr.io/prometheus-to-sd"] = "gke"
+	knownContainerImage["gke.gcr.io/proxy-agent"] = "gke"
+	knownContainerImage["k8s.gcr.io/metrics-server/metrics-server"] = "gke"
+	knownContainerImage["k8s.gcr.io/pause"] = "gke"
 }
 
 var ListCommand = cli.Command{
@@ -115,7 +116,6 @@ var listNamespaces = cli.Command{
 	},
 }
 
-
 // isKnownContainerImage returns true if the image name
 // is in knownContainerImage map.
 func isKnownContainerImage(image string) bool {
@@ -128,16 +128,16 @@ func isKnownContainerImage(image string) bool {
 		}
 	}
 
-    if strings.Contains(image, ":") {
-        imageBase := strings.Split(image, ":")[0]
-        k8sType := knownContainerImage[imageBase]
+	if strings.Contains(image, ":") {
+		imageBase := strings.Split(image, ":")[0]
+		k8sType := knownContainerImage[imageBase]
 
-        if k8sType != "" {
-            return true
-        }
-    }
+		if k8sType != "" {
+			return true
+		}
+	}
 
-    return false
+	return false
 }
 
 var listContainers = cli.Command{
@@ -145,12 +145,12 @@ var listContainers = cli.Command{
 	Aliases:     []string{"c"},
 	Usage:       "list containers",
 	Description: "list all containers",
-    Flags: append([]cli.Flag{
-        cli.BoolFlag{
-        Name: "skip-known-containers",
-        Usage: "Skip known containers",
-        },
-    }),
+	Flags: append([]cli.Flag{
+		cli.BoolFlag{
+			Name:  "skip-known-containers",
+			Usage: "Skip known containers",
+		},
+	}),
 	Action: func(clictx *cli.Context) error {
 
 		// open bolt database
@@ -173,7 +173,7 @@ var listContainers = cli.Command{
 
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
-		fmt.Fprintf(tw, "\nNAMESPACE\tCONTAINER NAME\tIMAGE\tCREATED AT\tLABELS\n")
+		fmt.Fprintf(tw, "\nNAMESPACE\tCONTAINER NAME\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT\tLABELS\n")
 
 		for _, ns := range nss {
 			ctx = namespaces.WithNamespace(ctx, ns)
@@ -187,13 +187,14 @@ var listContainers = cli.Command{
 
 			// handle namespacess without containers
 			if results == nil {
-        		fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
-        		ns,
-          		"", // ID
-          		"", // Image
-          		"", // CreatedAt
-          		"") // labels
-			  
+				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
+					ns,
+					"", // ID
+					"", // containerHostname
+					"", // Image
+					"", // CreatedAt
+					"") // labels
+
 				continue
 			}
 
@@ -208,16 +209,39 @@ var listContainers = cli.Command{
 					labels = "-"
 				}
 
-        // Skip the known container images
-        if clictx.Bool("skip-known-containers") {
-            if isKnownContainerImage(result.Image) {
-                continue
-            }
-        }
+				// Skip the known container images
+				if clictx.Bool("skip-known-containers") {
+					if isKnownContainerImage(result.Image) {
+						continue
+					}
+				}
 
-				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
+				var containerHostname string = ""
+
+				if result.Spec != nil && result.Spec.Value != nil {
+					var v spec.Spec
+					json.Unmarshal(result.Spec.Value, &v)
+
+					if v.Hostname != "" {
+						containerHostname = v.Hostname
+					} else {
+
+						for _, kv := range v.Process.Env {
+							if strings.HasPrefix(kv, "HOSTNAME=") {
+								containerHostname = strings.TrimSpace(strings.Split(kv, "=")[1])
+								break
+							}
+						}
+					}
+					log.WithFields(log.Fields{
+						"containerHostname": v.Hostname,
+					}).Debug("Specs data")
+				}
+
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%v\t%s\n",
 					ns,
 					result.ID,
+					containerHostname,
 					result.Image,
 					result.CreatedAt.Format(tsLayout),
 					labels)
