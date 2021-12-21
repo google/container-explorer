@@ -187,7 +187,7 @@ var listContainers = cli.Command{
 
 			// handle namespacess without containers
 			if results == nil {
-				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%s\n",
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%v\t%s\n",
 					ns,
 					"", // ID
 					"", // containerHostname
