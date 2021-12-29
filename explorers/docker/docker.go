@@ -91,6 +91,12 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 	return nil, nil
 }
 
+// InfoContainer returns container internal information.
+func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
+	// default return
+	return nil, nil
+}
+
 // Close releases internal resources.
 func (e *explorer) Close() error {
 	return e.mdb.Close()

@@ -48,6 +48,9 @@ type ContainerExplorer interface {
 	// ListContent returns information about content
 	ListContent(ctx context.Context) ([]Content, error)
 
+	// InfoContainer returns container internal information
+	InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error)
+
 	// Close releases the internal resources
 	Close() error
 }

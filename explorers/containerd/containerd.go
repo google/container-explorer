@@ -26,6 +26,7 @@ import (
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/gogo/protobuf/types"
 	"github.com/google/container-explorer/explorers"
 
 	spec "github.com/opencontainers/runtime-spec/specs-go"
@@ -246,6 +247,40 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 	return cesnapshots, nil
 }
 
+// InfoContainer returns container internal information.
+func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
+	store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
+
+	container, err := store.Get(ctx, containerid)
+	if err != nil {
+		return nil, err
+	}
+
+	if container.Spec != nil && container.Spec.Value != nil {
+		v, err := parseSpec(container.Spec)
+		if err != nil {
+			return nil, err
+		}
+
+		// Only return spec
+		if spec {
+			return v, nil
+		}
+
+		// Return container and spec info
+		return struct {
+			containers.Container
+			Spec interface{} `json:"Spec,omitempty"`
+		}{
+			Container: container,
+			Spec:      v,
+		}, nil
+	}
+
+	// default return
+	return nil, nil
+}
+
 // Close releases the internal resources
 func (e *explorer) Close() error {
 	return e.mdb.Close()
@@ -309,4 +344,11 @@ func isKubernetesSupportContainer(ctr containers.Container) bool {
 	// TODO (rmaskey): Check for a Kubernetes support container based on container ID.
 
 	return supportcontainer
+}
+
+// parseSpec parses containerd spec and returns the information as JSON.
+func parseSpec(any *types.Any) (interface{}, error) {
+	var v spec.Spec
+	json.Unmarshal(any.Value, &v)
+	return v, nil
 }
