@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -341,6 +342,44 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 
 	if string(out) != "" {
 		log.Info("mount command output ", string(out))
+	}
+
+	// default
+	return nil
+}
+
+// MountAllContainers mounts all the containers
+func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, skipsupportcontainers bool) error {
+	ctrs, err := e.ListContainers(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, ctr := range ctrs {
+		// Skip Kubernetes suppot containers
+		if skipsupportcontainers && ctr.SupportContainer {
+			log.WithFields(log.Fields{
+				"namespace":   ctr.Namespace,
+				"containerid": ctr.ID,
+			}).Info("skip mounting Kubernetes containers")
+
+			continue
+		}
+
+		// Create a subdirectory within the specified mountpoint
+		ctrmountpoint := filepath.Join(mountpoint, ctr.ID)
+		if err := os.MkdirAll(ctrmountpoint, 0755); err != nil {
+			log.WithFields(log.Fields{
+				"namespace":   ctr.Namespace,
+				"containerid": ctr.ID,
+				"mountpoint":  mountpoint,
+			}).Error("creating mount point for a container")
+		}
+
+		ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
+		if err := e.MountContainer(ctx, ctr.ID, ctrmountpoint); err != nil {
+			return err
+		}
 	}
 
 	// default

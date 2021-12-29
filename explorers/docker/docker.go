@@ -118,6 +118,12 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	return nil
 }
 
+// MountAllContainers mounts all the containers
+func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, skipsupportcontainers bool) error {
+	// default
+	return nil
+}
+
 // Close releases internal resources.
 func (e *explorer) Close() error {
 	return e.mdb.Close()
