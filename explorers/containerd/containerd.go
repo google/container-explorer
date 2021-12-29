@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -279,6 +280,71 @@ func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec b
 
 	// default return
 	return nil, nil
+}
+
+// MountContainer mounts a container to the specified path
+func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
+	store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
+
+	container, err := store.Get(ctx, containerid)
+	if err != nil {
+		return fmt.Errorf("failed getting container information %v", err)
+	}
+	log.WithFields(log.Fields{
+		"snapshotter": container.Snapshotter,
+		"snapshotKey": container.SnapshotKey,
+		"image":       container.Image,
+	}).Debug("container snapshotter")
+
+	// Snapshot database metadata.db access
+	opts := bolt.Options{
+		ReadOnly: true,
+	}
+	ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
+	if err != nil {
+		return fmt.Errorf("failed to open snapshot database %v", err)
+	}
+
+	// snapshot store
+	ssstore := NewSnaptshotStore(e.root, e.mdb, ssdb)
+	lowerdir, upperdir, workdir, err := ssstore.OverlayPath(ctx, container)
+	log.WithFields(log.Fields{
+		"lowerdir": lowerdir,
+		"upperdir": upperdir,
+		"workdir":  workdir,
+	}).Debug("overlay directories")
+	if err != nil {
+		return fmt.Errorf("failed to get overlay path %v", err)
+	}
+
+	if lowerdir == "" {
+		return fmt.Errorf("lowerdir is empty")
+	}
+
+	// TODO(rmaskey): Use github.com/containerd/containerd/mount.Mount to mount
+	// a container
+	mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", lowerdir, upperdir)
+	mountArgs := []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
+	log.Debug("container mount command ", mountArgs)
+
+	cmd := exec.Command("mount", mountArgs...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Errorf("running mount command %v", err)
+
+		if strings.Contains(err.Error(), " 32") {
+			log.Error("invalid overlayfs lowerdir path. Use --debug to view lowerdir path")
+		}
+
+		return err
+	}
+
+	if string(out) != "" {
+		log.Info("mount command output ", string(out))
+	}
+
+	// default
+	return nil
 }
 
 // Close releases the internal resources

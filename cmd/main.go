@@ -87,6 +87,7 @@ func main() {
 	app.Commands = []cli.Command{
 		cecommands.ListCommand,
 		cecommands.InfoCommand,
+		cecommands.MountCommand,
 	}
 
 	app.Before = func(context *cli.Context) error {

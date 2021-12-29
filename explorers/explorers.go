@@ -51,6 +51,9 @@ type ContainerExplorer interface {
 	// InfoContainer returns container internal information
 	InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error)
 
+	// MountContainer mounts a container to the specified path
+	MountContainer(ctx context.Context, containerid string, mountpoint string) error
+
 	// Close releases the internal resources
 	Close() error
 }
