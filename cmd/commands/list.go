@@ -132,13 +132,13 @@ var listContainers = cli.Command{
 			// skip kubernetes support containers created
 			// by GKE, EKS, and AKS
 			if clictx.Bool("skip-support-containers") {
-				log.WithFields(log.Fields{
-					"namespace":        container.Namespace,
-					"containerid":      container.ID,
-					"supportcontainer": container.SupportContainer,
-				}).Debug("checking support container")
-
 				if container.SupportContainer {
+					log.WithFields(log.Fields{
+						"namespace":        container.Namespace,
+						"containerid":      container.ID,
+						"supportcontainer": container.SupportContainer,
+					}).Info("skip support container")
+
 					continue
 				}
 			}
