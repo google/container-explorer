@@ -84,6 +84,10 @@ var listContainers = cli.Command{
 			Name:  "no-labels",
 			Usage: "hide container labels",
 		},
+		cli.BoolFlag{
+			Name: "updated",
+			Usage: "show updated timestamp",
+		},
 	},
 	Action: func(clictx *cli.Context) error {
 
@@ -101,9 +105,12 @@ var listContainers = cli.Command{
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		displayFields := "NAMESPACE\tCONTAINER NAME\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT\tUPDATED AT\tLABELS"
-		if clictx.Bool("no-labels") {
-			displayFields = "NAMESPACE\tCONTAINER NAME\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT\tUPDATED AT"
+		displayFields := "NAMESPACE\tCONTAINER ID\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT"
+		if clictx.Bool("updated") {
+			displayFields = fmt.Sprintf("%v\tUPDATED AT", displayFields)
+		}
+		if !clictx.Bool("no-labels") {
+			displayFields = fmt.Sprintf("%v\tLABELS", displayFields)
 		}
 		fmt.Fprintf(tw, "%v\n", displayFields)
 
@@ -122,15 +129,16 @@ var listContainers = cli.Command{
 				}
 			}
 
-			displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s",
+			displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
 				container.Namespace,
 				container.ID,
 				container.Hostname,
 				container.Image,
 				container.CreatedAt.Format(tsLayout),
-				container.UpdatedAt.Format(tsLayout),
 			)
-
+			if clictx.Bool("updated") {
+				displayValues = fmt.Sprintf("%v\t%s", displayValues, container.UpdatedAt.Format(tsLayout))
+			}
 			if !clictx.Bool("no-labels") {
 				displayValues = fmt.Sprintf("%v\t%v", displayValues, labelString(container.Labels))
 			}
