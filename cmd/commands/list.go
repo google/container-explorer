@@ -85,8 +85,16 @@ var listContainers = cli.Command{
 			Usage: "hide container labels",
 		},
 		cli.BoolFlag{
-			Name: "updated",
+			Name:  "updated",
 			Usage: "show updated timestamp",
+		},
+		cli.BoolFlag{
+			Name:  "ports",
+			Usage: "show exposed ports",
+		},
+		cli.BoolFlag{
+			Name:  "running",
+			Usage: "show running docker managed containers",
 		},
 	},
 	Action: func(clictx *cli.Context) error {
@@ -106,9 +114,15 @@ var listContainers = cli.Command{
 		defer tw.Flush()
 
 		displayFields := "NAMESPACE\tCONTAINER ID\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT"
+		// show updated timestamp
 		if clictx.Bool("updated") {
 			displayFields = fmt.Sprintf("%v\tUPDATED AT", displayFields)
 		}
+		// show exposed ports
+		if clictx.Bool("ports") {
+			displayFields = fmt.Sprintf("%v\tEXPOSED PORTS", displayFields)
+		}
+		// show labels
 		if !clictx.Bool("no-labels") {
 			displayFields = fmt.Sprintf("%v\tLABELS", displayFields)
 		}
@@ -129,6 +143,20 @@ var listContainers = cli.Command{
 				}
 			}
 
+			// Show only running containers.
+			//
+			// This is currently supported only on a docker managed containers.
+			if clictx.GlobalBool("docker-managed") && clictx.Bool("running") {
+				if !container.Running {
+					log.WithFields(log.Fields{
+						"containerid": container.ID,
+						"image":       container.Image,
+					}).Info("skip container that was not running")
+
+					continue
+				}
+			}
+
 			displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
 				container.Namespace,
 				container.ID,
@@ -136,9 +164,15 @@ var listContainers = cli.Command{
 				container.Image,
 				container.CreatedAt.Format(tsLayout),
 			)
+			// show updated timestamp value
 			if clictx.Bool("updated") {
 				displayValues = fmt.Sprintf("%v\t%s", displayValues, container.UpdatedAt.Format(tsLayout))
 			}
+			// show exposed ports value
+			if clictx.Bool("ports") {
+				displayValues = fmt.Sprintf("%v\t%s", displayValues, arrayToString(container.ExposedPorts))
+			}
+			// show labels values
 			if !clictx.Bool("no-labels") {
 				displayValues = fmt.Sprintf("%v\t%v", displayValues, labelString(container.Labels))
 			}
@@ -285,6 +319,7 @@ var listSnapshots = cli.Command{
 	},
 }
 
+// labelString retruns a string of comma separated key-value pairs.
 func labelString(labels map[string]string) string {
 	var lablestrings []string
 
@@ -292,4 +327,19 @@ func labelString(labels map[string]string) string {
 		lablestrings = append(lablestrings, strings.Join([]string{k, v}, "="))
 	}
 	return strings.Join(lablestrings, ",")
+}
+
+// arrayToString returns a string of comma separated value of an array.
+func arrayToString(array []string) string {
+	var result string
+
+	for i, val := range array {
+		if i == 0 {
+			result = val
+			continue
+		}
+		result = fmt.Sprintf("%s,%s", result, val)
+	}
+
+	return result
 }

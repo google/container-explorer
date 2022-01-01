@@ -23,5 +23,11 @@ type Container struct {
 	Namespace        string
 	Hostname         string
 	SupportContainer bool
+
+	// containerd specific fields
 	containers.Container
+
+	// docker specific fields
+	Running      bool
+	ExposedPorts []string
 }

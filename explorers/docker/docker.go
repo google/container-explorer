@@ -18,10 +18,23 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 
+	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/metadata"
 	"github.com/google/container-explorer/explorers"
+	log "github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+)
+
+const (
+	configV1Filename  = "config.json"
+	configV2Filename  = "config.v2.json"
+	containersDirName = "containers"
 )
 
 type explorer struct {
@@ -83,10 +96,65 @@ func (e *explorer) ListNamespaces(ctx context.Context) ([]string, error) {
 	return nss, nil
 }
 
+// GetContainerIDs returns container ID
+func (e *explorer) GetContainerIDs(ctx context.Context, containerdir string) ([]string, error) {
+	containerpaths, err := filepath.Glob(filepath.Join(containerdir, "*"))
+	if err != nil {
+		return nil, err
+	}
+
+	var containerids []string
+	for _, containerpath := range containerpaths {
+		_, containerid := filepath.Split(containerpath)
+		containerids = append(containerids, containerid)
+	}
+	return containerids, nil
+}
+
 // ListContainers returns container information.
 func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, error) {
-	// TODO(rmaskey): implement the function
-	return nil, nil
+	containersdir := filepath.Join(e.root, containersDirName)
+	containerids, err := e.GetContainerIDs(ctx, containersdir)
+	if err != nil {
+		return nil, err
+	}
+
+	var cecontainers []explorers.Container
+
+	for _, containerid := range containerids {
+		containerpath := filepath.Join(containersdir, containerid)
+
+		// Read docker config version 2
+		configpath := filepath.Join(containerpath, configV2Filename)
+		if fileExists(configpath) {
+			data, err := ioutil.ReadFile(configpath)
+			if err != nil {
+				return nil, fmt.Errorf("reading docker config file %s %v", configV2Filename, err)
+			}
+
+			var config ConfigFile
+			if err := json.Unmarshal(data, &config); err != nil {
+				return nil, fmt.Errorf("unmarshalling config file data %v", err)
+			}
+			cecontainer := convertToContainerExplorerContainer(config)
+			cecontainers = append(cecontainers, cecontainer)
+
+			continue
+		}
+
+		// Read docker config version 1
+		configpath = filepath.Join(containerpath, configV1Filename)
+		if fileExists(configpath) {
+			// TODO (rmaskey): parse v1 confg
+			continue
+		}
+
+		log.WithFields(log.Fields{
+			"containerid": containerid,
+		}).Error("configuration file not found")
+	}
+
+	return cecontainers, nil
 }
 
 // ListImages returns container images.
@@ -127,4 +195,36 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, sk
 // Close releases internal resources.
 func (e *explorer) Close() error {
 	return e.mdb.Close()
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// convertToContainerExplorerContainer maps docker config data to container
+// explorer container structure
+func convertToContainerExplorerContainer(config ConfigFile) explorers.Container {
+	var exposedports []string
+
+	if config.Config.ExposedPorts != nil {
+		for k := range config.Config.ExposedPorts {
+			exposedports = append(exposedports, k)
+		}
+	}
+
+	return explorers.Container{
+		Hostname: config.Config.Hostname,
+		Container: containers.Container{
+			ID:          config.ID,
+			CreatedAt:   config.Created,
+			Image:       config.Image,
+			Snapshotter: config.Driver,
+			Runtime: containers.RuntimeInfo{
+				Name: config.Name,
+			},
+		},
+		Running:      config.State.Running,
+		ExposedPorts: exposedports,
+	}
 }
