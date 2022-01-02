@@ -23,19 +23,33 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/containerd/containerd/containers"
+	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/metadata"
 	"github.com/google/container-explorer/explorers"
+	digest "github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	log "github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	configV1Filename  = "config.json"
-	configV2Filename  = "config.v2.json"
-	containersDirName = "containers"
+	configV1Filename     = "config.json"
+	configV2Filename     = "config.v2.json"
+	containersDirName    = "containers"
+	repositoriesDirName  = "image"
+	repositoriesFileName = "repositories.json"
+	storageOverlay2      = "overlay2"
 )
+
+type ImageName map[string]string
+
+type ImageRepository struct {
+	Repositories map[string]ImageName
+}
 
 type explorer struct {
 	root          string // docker root directory
@@ -157,10 +171,94 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 	return cecontainers, nil
 }
 
-// ListImages returns container images.
+// structure to hold limited docker image information
+//
+// The structure hold information from the file
+// /var/lib/docker/image/overlay2/imagedb/content/sha256/<imageid>
+type rootfs struct {
+	Rfstype string   `json:"type"`
+	DiffIds []string `json:"diff_ids"`
+}
+
+type historyItem map[string]interface{}
+
+type imageContentSummary struct {
+	Architecture    string        `json:"architecture"`
+	Config          Config        `json:"config"`
+	Container       string        `json:"container"`
+	ContainerConfig Config        `json:"container_config"`
+	Created         time.Time     `json:"created"`
+	DockerVersion   string        `json:"docker_version"`
+	History         []historyItem `json:"history"`
+	Os              string        `json:"os"`
+	Rootfs          rootfs        `json:"rootfs"`
+}
+
+// ListImages returns information about docker images.
 func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
-	// TODO(rmaskey): implement the function
-	return nil, nil
+	// TODO (rmaskey): Handle docker version 1 images
+
+	// Docker version 2
+	//
+	// Check for valid image repositories directory
+	repositoriesdir := filepath.Join(e.root, repositoriesDirName)
+	if !fileExists(repositoriesdir) {
+		return nil, fmt.Errorf("valid image repositories directory %s not found", repositoriesdir)
+	}
+
+	storagedirs, err := filepath.Glob(filepath.Join(repositoriesdir, "*"))
+	if err != nil {
+		return nil, fmt.Errorf("listing storage directories %v", err)
+	}
+
+	var ceimages []explorers.Image
+
+	for _, storagedir := range storagedirs {
+		_, storagename := filepath.Split(storagedir)
+		repositoriesfile := filepath.Join(storagedir, repositoriesFileName)
+
+		log.WithFields(log.Fields{
+			"storagename":      storagename,
+			"storagedir":       storagedir,
+			"repositoriesfile": repositoriesfile,
+		}).Debug("image repository file")
+
+		data, err := ioutil.ReadFile(repositoriesfile)
+		if err != nil {
+			return nil, fmt.Errorf("failed read repository file %v. %v", repositoriesfile, err)
+		}
+
+		var r ImageRepository
+		if err := json.Unmarshal(data, &r); err != nil {
+			return nil, fmt.Errorf("unmarshalling image repository file %s. %v", repositoriesfile, err)
+		}
+
+		for _, distvalue := range r.Repositories {
+			for k, v := range distvalue {
+				image := images.Image{
+					Name: k,
+					Target: ocispec.Descriptor{
+						Digest: digest.Digest(v),
+					},
+				}
+
+				if storagename == storageOverlay2 {
+					imagecontent, err := readImageContent(storagename, storagedir, image.Target.Digest)
+					if err != nil {
+						log.Error("reading image content file ", err)
+					} else {
+						image.CreatedAt = imagecontent.Created
+					}
+				}
+
+				ceimages = append(ceimages, explorers.Image{
+					Image: image,
+				})
+			}
+		}
+	}
+
+	return ceimages, nil
 }
 
 // ListContent returns content information.
@@ -227,4 +325,37 @@ func convertToContainerExplorerContainer(config ConfigFile) explorers.Container 
 		Running:      config.State.Running,
 		ExposedPorts: exposedports,
 	}
+}
+
+// readImageContent reads the content of overlay2 image content
+func readImageContent(storagename string, storagepath string, digest digest.Digest) (imageContentSummary, error) {
+	m := strings.Split(string(digest), ":")
+	if len(m) != 2 {
+		return imageContentSummary{}, fmt.Errorf("expecting two colon separated values")
+	}
+	algo := m[0]
+	filename := m[1]
+
+	imagecontentfile := filepath.Join(storagepath, "imagedb", "content", algo, filename)
+	log.WithFields(log.Fields{
+		"filename": imagecontentfile,
+	}).Debug("reading docker image content file")
+
+	data, err := ioutil.ReadFile(imagecontentfile)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"storage name": storagename,
+			"algo":         algo,
+			"filename":     filename,
+		}).Debug("reading docker image content file")
+
+		return imageContentSummary{}, err
+	}
+
+	var imagecontent imageContentSummary
+	if err := json.Unmarshal(data, &imagecontent); err != nil {
+		return imageContentSummary{}, err
+	}
+
+	return imagecontent, nil
 }
