@@ -175,15 +175,28 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 //
 // The structure hold information from the file
 // /var/lib/docker/image/overlay2/imagedb/content/sha256/<imageid>
+//
+// Reference to docker source code https://github.com/moby/moby/image/image.go
+
 type rootfs struct {
 	Rfstype string   `json:"type"`
 	DiffIds []string `json:"diff_ids"`
 }
 
-type historyItem map[string]interface{}
+// Refer to struct History
+type historyItem struct {
+	Created    time.Time `json:"created"`
+	Author     string    `json:"author,omitempty"`
+	CreatedBy  string    `json:"created_by,omitempty"`
+	Comment    string    `json:"comment,omitempty"`
+	EmptyLayer bool      `json:"empty_layer,omitempty"`
+}
 
+// Refer to structs Image and V1Image
 type imageContentSummary struct {
+	ID              string        `json:"id,omitempty"`
 	Architecture    string        `json:"architecture"`
+	Comment         string        `json:"comment,omitempty"`
 	Config          Config        `json:"config"`
 	Container       string        `json:"container"`
 	ContainerConfig Config        `json:"container_config"`
@@ -191,6 +204,7 @@ type imageContentSummary struct {
 	DockerVersion   string        `json:"docker_version"`
 	History         []historyItem `json:"history"`
 	Os              string        `json:"os"`
+	Parent          string        `json:"parent,omitempty"`
 	Rootfs          rootfs        `json:"rootfs"`
 }
 
