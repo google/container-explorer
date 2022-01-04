@@ -297,7 +297,7 @@ func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec b
 
 // MountContainer mounts a container to the specified path
 func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
-	container, err := e.getContainer(ctx, containerid)
+	container, err := e.GetContainer(ctx, containerid)
 	if err != nil {
 		return fmt.Errorf("getting container %v", err)
 	}
@@ -363,6 +363,61 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 
 // MountAllContainers mounts all the containers
 func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, skipsupportcontainers bool) error {
+	containersdir := filepath.Join(e.root, containersDirName)
+	log.WithField("containersdir", containersdir).Debug("docker containers directory")
+
+	containerids, err := e.GetContainerIDs(ctx, containersdir)
+	if err != nil {
+		return fmt.Errorf("failed listing containers ID %v", err)
+	}
+	if containerids == nil {
+		return fmt.Errorf("no container ID returned")
+	}
+
+	for _, containerid := range containerids {
+		container, err := e.GetContainer(ctx, containerid)
+		if err != nil {
+			log.WithField("containerid", containerid).Error("getting container details")
+			log.WithField("containerid", containerid).Warn("skipping container mount")
+			continue
+		}
+
+		// Skip mounting Kubernetes support containers
+		cecontainer := convertToContainerExplorerContainer(container)
+		if cecontainer.ID == "" {
+			log.WithField("containerid", containerid).Error("failed to convert to ContainerExplorer container")
+			log.WithField("containerid", containerid).Warn("skipping container mount")
+			continue
+		}
+
+		if skipsupportcontainers && cecontainer.SupportContainer {
+			log.WithFields(log.Fields{
+				"namespace":   cecontainer.Namespace,
+				"containerid": cecontainer.ID,
+			}).Info("skip mounting Kubernetes support container")
+			continue
+		}
+
+		// Create mountpoint for each container
+		ctrmountpoint := filepath.Join(mountpoint, container.ID)
+		if err := os.MkdirAll(ctrmountpoint, 0755); err != nil {
+			log.WithFields(log.Fields{
+				"namespace":   cecontainer.Namespace,
+				"containerid": cecontainer.ID,
+				"mountpoint":  ctrmountpoint,
+			}).Error("creating mountpoint for container")
+			log.WithField("containerid", containerid).Warn("skippoing container mount")
+			continue
+		}
+
+		if err := e.MountContainer(ctx, containerid, ctrmountpoint); err != nil {
+			log.WithFields(log.Fields{
+				"containerid": containerid,
+				"message":     err.Error(),
+			}).Error("mounting container")
+		}
+	}
+
 	// default
 	return nil
 }
@@ -372,8 +427,8 @@ func (e *explorer) Close() error {
 	return e.mdb.Close()
 }
 
-// getContainer returns container configuration
-func (e *explorer) getContainer(ctx context.Context, containerid string) (ConfigFile, error) {
+// GetContainer returns container configuration
+func (e *explorer) GetContainer(ctx context.Context, containerid string) (ConfigFile, error) {
 	containerdir := filepath.Join(e.root, containersDirName, containerid)
 	log.WithField("containerdir", containerdir).Debug("container directory")
 	if !fileExists(containerdir) {
