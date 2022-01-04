@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -40,6 +41,7 @@ const (
 	configV1Filename     = "config.json"
 	configV2Filename     = "config.v2.json"
 	containersDirName    = "containers"
+	lowerdirName         = "lower"
 	repositoriesDirName  = "image"
 	repositoriesFileName = "repositories.json"
 	storageOverlay2      = "overlay2"
@@ -295,6 +297,67 @@ func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec b
 
 // MountContainer mounts a container to the specified path
 func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
+	container, err := e.getContainer(ctx, containerid)
+	if err != nil {
+		return fmt.Errorf("getting container %v", err)
+	}
+
+	containerMountIDPath := filepath.Join(e.root, repositoriesDirName, container.Driver, "layerdb", "mounts", containerid, "mount-id")
+	log.WithField("containerMountIDPath", containerMountIDPath).Debug("container mount-id path")
+
+	mountIDByte, err := ioutil.ReadFile(containerMountIDPath)
+	if err != nil {
+		return fmt.Errorf("reading container mount-id")
+	}
+	mountID := string(mountIDByte)
+	log.WithField("mount-id", mountID).Debug("container mount-id")
+
+	// build container lower directory
+	lowerdirpath := filepath.Join(e.root, container.Driver, mountID, lowerdirName)
+	log.WithField("lowerdirpath", lowerdirpath).Debug("container lowerdir path")
+	data, err := ioutil.ReadFile(lowerdirpath)
+	if err != nil {
+		return fmt.Errorf("reading lower file %v", err)
+	}
+
+	var lowerdir string
+	for i, ldir := range strings.Split(string(data), ":") {
+		ldirpath := filepath.Join(e.root, container.Driver, ldir)
+		if i == 0 {
+			lowerdir = ldirpath
+			continue
+		}
+		lowerdir = fmt.Sprintf("%s:%s", lowerdir, ldirpath)
+	}
+
+	upperdir := filepath.Join(e.root, container.Driver, mountID, "diff")
+	workdir := filepath.Join(e.root, container.Driver, mountID, "work")
+
+	log.WithFields(log.Fields{
+		"lowerdir": lowerdir,
+		"upperdir": upperdir,
+		"workdir":  workdir,
+	}).Debug("container overlay directories")
+
+	// mounting container
+	mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", lowerdir, upperdir)
+	mountargs := []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
+
+	cmd := exec.Command("mount", mountargs...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Errorf("running mount command %v", mountargs)
+
+		if strings.Contains(err.Error(), " 32") {
+			return fmt.Errorf("invalid lowerdir path %v. Use --debug to view lowerdir path", err)
+		}
+		return fmt.Errorf("executing mount command %v", err)
+	}
+
+	if string(out) != "" {
+		log.WithField("mount command", string(out)).Debug("container mount command")
+	}
+
 	return nil
 }
 
@@ -307,6 +370,33 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, sk
 // Close releases internal resources.
 func (e *explorer) Close() error {
 	return e.mdb.Close()
+}
+
+// getContainer returns container configuration
+func (e *explorer) getContainer(ctx context.Context, containerid string) (ConfigFile, error) {
+	containerdir := filepath.Join(e.root, containersDirName, containerid)
+	log.WithField("containerdir", containerdir).Debug("container directory")
+	if !fileExists(containerdir) {
+		return ConfigFile{}, fmt.Errorf("container does not exist")
+	}
+
+	containerConfigFile := filepath.Join(containerdir, configV2Filename)
+	log.WithField("containerConfigFile", containerConfigFile).Debug("container configuration file")
+	if !fileExists(containerConfigFile) {
+		return ConfigFile{}, fmt.Errorf("container config file %s does not exist", configV2Filename)
+	}
+
+	data, err := ioutil.ReadFile(containerConfigFile)
+	if err != nil {
+		return ConfigFile{}, fmt.Errorf("reading container config file %s %v", configV2Filename, err)
+	}
+
+	var container ConfigFile
+	if err := json.Unmarshal(data, &container); err != nil {
+		return ConfigFile{}, fmt.Errorf("unmarshalling container config %v", err)
+	}
+
+	return container, nil
 }
 
 func fileExists(path string) bool {
