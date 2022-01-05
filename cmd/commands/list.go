@@ -77,8 +77,8 @@ var listContainers = cli.Command{
 	Description: "list containers for all namespaces",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "skip-support-containers",
-			Usage: "skip listing of the supporting containers created by Kubernetes",
+			Name:  "show-support-containers",
+			Usage: "show supporting containers created by Kubernetes",
 		},
 		cli.BoolFlag{
 			Name:  "no-labels",
@@ -129,18 +129,16 @@ var listContainers = cli.Command{
 		fmt.Fprintf(tw, "%v\n", displayFields)
 
 		for _, container := range containers {
-			// skip kubernetes support containers created
+			// Show Kubernetes support containers created
 			// by GKE, EKS, and AKS
-			if clictx.Bool("skip-support-containers") {
-				if container.SupportContainer {
-					log.WithFields(log.Fields{
-						"namespace":        container.Namespace,
-						"containerid":      container.ID,
-						"supportcontainer": container.SupportContainer,
-					}).Info("skip support container")
+			if !clictx.Bool("show-support-containers") && container.SupportContainer {
+				log.WithFields(log.Fields{
+					"namespace":        container.Namespace,
+					"containerid":      container.ID,
+					"supportcontainer": container.SupportContainer,
+				}).Info("skip support container")
 
-					continue
-				}
+				continue
 			}
 
 			// Show only running containers.
@@ -188,6 +186,12 @@ var listImages = cli.Command{
 	Aliases:     []string{"image"},
 	Usage:       "list images for all namespaces",
 	Description: "list images for all namespaces",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "show-support-containers",
+			Usage: "show Kubernetes support container images",
+		},
+	},
 	Action: func(clictx *cli.Context) error {
 
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
@@ -206,6 +210,14 @@ var listImages = cli.Command{
 
 		fmt.Fprintf(tw, "NAMESPACE\tNAME\tCREATED AT\tUPDATED AT\tDIGEST\tTYPE\n")
 		for _, image := range images {
+			if !clictx.Bool("show-support-containers") && image.SupportContainerImage {
+				log.WithFields(log.Fields{
+					"namespace": image.Namespace,
+					"image":     image.Name,
+				}).Debug("skipping Kubernetes support container image")
+				continue
+			}
+
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				image.Namespace,
 				image.Name,

@@ -154,8 +154,9 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 		for _, result := range results {
 			//ceimages = append(ceimages, convertToContainerExplorerImage(ns, result))
 			ceimages = append(ceimages, explorers.Image{
-				Namespace: ns,
-				Image:     result,
+				Namespace:             ns,
+				SupportContainerImage: isKubernetesSupportContainerImage(result.Name),
+				Image:                 result,
 			})
 		}
 	}
@@ -424,13 +425,19 @@ func convertToContainerExplorerContainer(ns string, ctr containers.Container) ex
 //
 // Example of such containers are kubeproxy, kube-dns etc.
 func isKubernetesSupportContainer(ctr containers.Container) bool {
-	var imagebase string = ctr.Image
-	supportcontainer := false
+	return isKubernetesSupportContainerImage(ctr.Image)
+}
 
-	// Check for a Kubernetes support container based on a known image.
-	// Example: gke.gcr.io/gke-metrics-agent:1.2.0-gke.0
-	if strings.Contains(ctr.Image, "@") {
-		imagebase = strings.Split(ctr.Image, "@")[0]
+// isKubernetesSupportContainerImage returns true if the container image is
+// used to create support container
+//
+// Example: gke.gcr.io/gke-metrics-agent:1.2.0-gke.0
+func isKubernetesSupportContainerImage(imagename string) bool {
+	supportcontainerimage := false
+	imagebase := imagename
+
+	if strings.Contains(imagebase, "@") {
+		imagebase = strings.Split(imagebase, "@")[0]
 	}
 
 	if strings.Contains(imagebase, ":") {
@@ -438,17 +445,15 @@ func isKubernetesSupportContainer(ctr containers.Container) bool {
 	}
 
 	if _, found := explorers.KubernetesSupportContainers[imagebase]; found {
-		supportcontainer = true
+		supportcontainerimage = true
 	}
 
 	log.WithFields(log.Fields{
-		"imagebase":        imagebase,
-		"supportcontainer": supportcontainer,
-	}).Debug("checking Kubernetes support container")
+		"imagebase":             imagebase,
+		"supportcontainerimage": supportcontainerimage,
+	}).Debug("Kubernetes support container image")
 
-	// TODO (rmaskey): Check for a Kubernetes support container based on container ID.
-
-	return supportcontainer
+	return supportcontainerimage
 }
 
 // parseSpec parses containerd spec and returns the information as JSON.

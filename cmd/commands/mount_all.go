@@ -31,8 +31,8 @@ var MountAllCommand = cli.Command{
 	ArgsUsage:   "[flag] MOUNT_POINT",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "skip-support-containers",
-			Usage: "skip mounting of supporting containers",
+			Name:  "mount-support-containers",
+			Usage: "mount Kubernetes supporting containers",
 		},
 	},
 	Action: func(clictx *cli.Context) error {
@@ -53,7 +53,7 @@ var MountAllCommand = cli.Command{
 		}
 		defer cancel()
 
-		if err := exp.MountAllContainers(ctx, mountpoint, clictx.Bool("skip-support-containers")); err != nil {
+		if err := exp.MountAllContainers(ctx, mountpoint, !clictx.Bool("mount-support-containers")); err != nil {
 			return err
 		}
 		// default
