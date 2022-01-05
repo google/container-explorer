@@ -375,6 +375,9 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, sk
 				"containerid": ctr.ID,
 				"mountpoint":  mountpoint,
 			}).Error("creating mount point for a container")
+
+			log.WithField("containerid", ctr.ID).Warn("skipping container mount")
+			continue
 		}
 
 		ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
