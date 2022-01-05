@@ -122,6 +122,10 @@ var listContainers = cli.Command{
 		if clictx.Bool("ports") {
 			displayFields = fmt.Sprintf("%v\tEXPOSED PORTS", displayFields)
 		}
+		// display docker container name
+		if clictx.GlobalBool("docker-managed") {
+			displayFields = fmt.Sprintf("%v\tNAME", displayFields)
+		}
 		// show labels
 		if !clictx.Bool("no-labels") {
 			displayFields = fmt.Sprintf("%v\tLABELS", displayFields)
@@ -169,6 +173,10 @@ var listContainers = cli.Command{
 			// show exposed ports value
 			if clictx.Bool("ports") {
 				displayValues = fmt.Sprintf("%v\t%s", displayValues, arrayToString(container.ExposedPorts))
+			}
+			// show docker container name
+			if clictx.GlobalBool("docker-managed") {
+				displayValues = fmt.Sprintf("%v\t%s", displayValues, strings.Replace(container.Runtime.Name, "/", "", 1))
 			}
 			// show labels values
 			if !clictx.Bool("no-labels") {

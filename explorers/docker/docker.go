@@ -135,6 +135,8 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 		return nil, err
 	}
 
+	imagerepositories, _ := e.GetRepositories(ctx)
+
 	var cecontainers []explorers.Container
 
 	for _, containerid := range containerids {
@@ -153,6 +155,13 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 				return nil, fmt.Errorf("unmarshalling config file data %v", err)
 			}
 			cecontainer := convertToContainerExplorerContainer(config)
+
+			// Use friendly image name if exists
+			if imagerepositories != nil {
+				if val, found := imagerepositories[cecontainer.Image]; found {
+					cecontainer.Image = val
+				}
+			}
 			cecontainers = append(cecontainers, cecontainer)
 
 			continue
@@ -457,6 +466,61 @@ func (e *explorer) GetContainer(ctx context.Context, containerid string) (Config
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// GetRepositories returns mapping of image ID to name
+func (e *explorer) GetRepositories(ctx context.Context) (map[string]string, error) {
+	repositoriesdir := filepath.Join(e.root, repositoriesDirName)
+	if !fileExists(repositoriesdir) {
+		return nil, fmt.Errorf("image repository directory %s does not exist", repositoriesdir)
+	}
+
+	storagedirs, err := filepath.Glob(filepath.Join(repositoriesdir, "*"))
+	if err != nil {
+		return nil, fmt.Errorf("listing storage directories. %v", err)
+	}
+
+	for _, storagedir := range storagedirs {
+		_, storagename := filepath.Split(storagedir)
+
+		if storagename != "overlay2" {
+			// TODO(rmaskey): handle other storage
+			log.Warn("storage ", storagename, " currently not supported")
+			continue
+		}
+
+		// Handle overlay2 storage
+		repositoriesfile := filepath.Join(storagedir, repositoriesFileName)
+		data, err := ioutil.ReadFile(repositoriesfile)
+		if err != nil {
+			return nil, fmt.Errorf("failed reading repositories file %s. %v", repositoriesfile, err)
+		}
+
+		var r ImageRepository
+		if err := json.Unmarshal(data, &r); err != nil {
+			return nil, fmt.Errorf("unmarshalling repositories file")
+		}
+
+		repositories := make(map[string]string)
+		for _, osdist := range r.Repositories {
+			for k, v := range osdist {
+				// repositories.json may contain multiple entries with same digest.
+				// Using the record that contains the friendly name rather <distro>@<digest> pattern
+				//
+				// Example: Two labels have the same hash
+				// "nginx": {
+				//   "nginx:latest": "sha256:605c77e624ddb75e6110f997c58876baa13f8754486b461117934b24a9dc3a85",
+				//   "nginx@sha256:0d17b565c37bcbd895e9d92315a05c1c3c9a29f762b011a10c54a66cd53c9b31": "sha256:605c77e624ddb75e6110f997c58876baa13f8754486b461117934b24a9dc3a85"
+				// }
+				if !strings.Contains(k, "@") {
+					repositories[v] = k
+				}
+			}
+		}
+		return repositories, nil
+	}
+
+	return nil, nil
 }
 
 // convertToContainerExplorerContainer maps docker config data to container
