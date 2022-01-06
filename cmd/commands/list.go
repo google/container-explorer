@@ -199,6 +199,14 @@ var listImages = cli.Command{
 			Name:  "show-support-containers",
 			Usage: "show Kubernetes support container images",
 		},
+		cli.BoolFlag{
+			Name:  "updated",
+			Usage: "show updated timestamp",
+		},
+		cli.BoolFlag{
+			Name:  "no-labels",
+			Usage: "hide image labels",
+		},
 	},
 	Action: func(clictx *cli.Context) error {
 
@@ -216,7 +224,15 @@ var listImages = cli.Command{
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		fmt.Fprintf(tw, "NAMESPACE\tNAME\tCREATED AT\tUPDATED AT\tDIGEST\tTYPE\n")
+		displayFields := "NAMESPACE\tNAME\tCREATED AT\tDIGEST\tTYPE"
+		if clictx.Bool("updated") {
+			displayFields = fmt.Sprintf("%v\tUPDATED AT", displayFields)
+		}
+		if !clictx.Bool("no-labels") {
+			displayFields = fmt.Sprintf("%v\tLABELS", displayFields)
+		}
+
+		fmt.Fprintf(tw, "%v\n", displayFields)
 		for _, image := range images {
 			if !clictx.Bool("show-support-containers") && image.SupportContainerImage {
 				log.WithFields(log.Fields{
@@ -226,14 +242,20 @@ var listImages = cli.Command{
 				continue
 			}
 
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
 				image.Namespace,
 				image.Name,
 				image.CreatedAt.Format(tsLayout),
-				image.UpdatedAt.Format(tsLayout),
 				string(image.Target.Digest),
 				image.Target.MediaType,
 			)
+			if clictx.Bool("updated") {
+				displayValues = fmt.Sprintf("%v\t%s", displayValues, image.UpdatedAt.Format(tsLayout))
+			}
+			if !clictx.Bool("no-labels") {
+				displayValues = fmt.Sprintf("%v\t%s", displayValues, labelString(image.Labels))
+			}
+			fmt.Fprintf(tw, "%v\n", displayValues)
 		}
 		return nil
 	},

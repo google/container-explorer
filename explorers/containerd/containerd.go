@@ -423,11 +423,24 @@ func convertToContainerExplorerContainer(ns string, ctr containers.Container) ex
 	}
 }
 
+// The support containers created by GKE are labeled as
+// io.kubernetes.pod.namespace="kube-system"
+const (
+	k8sPodNamespace        = "io.kubernetes.pod.namespace"
+	k8sSupportPodNamespace = "kube-system"
+)
+
 // isKubernetesSupportContainer returns true for a container that was created
 // by Kubernetes to facilitate the management of containers.
 //
 // Example of such containers are kubeproxy, kube-dns etc.
 func isKubernetesSupportContainer(ctr containers.Container) bool {
+	// Checking for container label kube-system
+	if val, found := ctr.Labels[k8sPodNamespace]; found {
+		if val == k8sSupportPodNamespace {
+			return true
+		}
+	}
 	return isKubernetesSupportContainerImage(ctr.Image)
 }
 
