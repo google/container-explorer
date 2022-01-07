@@ -282,7 +282,7 @@ var listContent = cli.Command{
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		fmt.Fprintf(tw, "\nNAMESPACE\tDIGEST\tSIZE\tCREATED AT\tUPDATED AT\tLABELS\n")
+		fmt.Fprintf(tw, "NAMESPACE\tDIGEST\tSIZE\tCREATED AT\tUPDATED AT\tLABELS\n")
 		for _, c := range content {
 			fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%v\t%s\n",
 				c.Namespace,
@@ -333,7 +333,7 @@ var listSnapshots = cli.Command{
 		if !clictx.Bool("no-labels") {
 			displayFields = fmt.Sprintf("%s\tLABELS", displayFields)
 		}
-		fmt.Fprintf(tw, "\n%v\n", displayFields)
+		fmt.Fprintf(tw, "%v\n", displayFields)
 
 		for _, s := range ss {
 			ssfilepath := s.OverlayPath

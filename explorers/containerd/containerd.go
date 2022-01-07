@@ -325,7 +325,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 
 	// TODO(rmaskey): Use github.com/containerd/containerd/mount.Mount to mount
 	// a container
-	mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", lowerdir, upperdir)
+	mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", upperdir, lowerdir)
 	mountArgs := []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
 	log.Debug("container mount command ", mountArgs)
 

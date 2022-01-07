@@ -349,7 +349,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	}).Debug("container overlay directories")
 
 	// mounting container
-	mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", lowerdir, upperdir)
+	mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", upperdir, lowerdir)
 	mountargs := []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
 
 	cmd := exec.Command("mount", mountargs...)
