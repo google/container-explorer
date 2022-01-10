@@ -64,13 +64,25 @@ type explorer struct {
 // NewExplorer returns a ContainerExplorer interface to explorer docker managed
 // containers.
 func NewExplorer(root string, containerdroot string, manifest string, snapshot string) (explorers.ContainerExplorer, error) {
-	opt := &bolt.Options{
-		ReadOnly: true,
+	var db *bolt.DB
+	var err error
+
+	if fileExists(containerdroot) {
+		opt := &bolt.Options{
+			ReadOnly: true,
+		}
+		db, err = bolt.Open(manifest, 0444, opt)
+		if err != nil {
+			return &explorer{}, err
+		}
 	}
-	db, err := bolt.Open(manifest, 0444, opt)
-	if err != nil {
-		return &explorer{}, err
-	}
+
+	log.WithFields(log.Fields{
+		"root":           root,
+		"containerdroot": containerdroot,
+		"manifest":       manifest,
+		"snapshot":       snapshot,
+	}).Debug("new docker explorer")
 
 	return &explorer{
 		root:          root,
@@ -94,19 +106,20 @@ func (e *explorer) ListNamespaces(ctx context.Context) ([]string, error) {
 
 	// Namespaces in metadata file i.e. meta.db
 	// in /var/lib/containerd/io.containerd.metadata.v1.bolt/meta.db
-	err := e.mdb.View(func(tx *bolt.Tx) error {
-		store := metadata.NewNamespaceStore(tx)
-		results, err := store.List(ctx)
+	if e.mdb != nil {
+		err := e.mdb.View(func(tx *bolt.Tx) error {
+			store := metadata.NewNamespaceStore(tx)
+			results, err := store.List(ctx)
+			if err != nil {
+				return err
+			}
+			nss = results
+			return nil
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
-		nss = results
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
-
 	// TODO(rmaskey): implement the function
 
 	return nss, nil
@@ -130,6 +143,11 @@ func (e *explorer) GetContainerIDs(ctx context.Context, containerdir string) ([]
 // ListContainers returns container information.
 func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, error) {
 	containersdir := filepath.Join(e.root, containersDirName)
+	log.WithFields(log.Fields{
+		"dockerroot":    e.root,
+		"containersdir": containersdir,
+	}).Debug("docker containers directory")
+
 	containerids, err := e.GetContainerIDs(ctx, containersdir)
 	if err != nil {
 		return nil, err

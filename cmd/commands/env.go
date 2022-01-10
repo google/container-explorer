@@ -46,10 +46,13 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 
 	// Computes containerdroot based on the global flags --image-root
 	// and --containerd-root
-	containerdroot := filepath.Join(
-		imageroot,
-		strings.Replace(clictx.GlobalString("containerd-root"), "/", "", 1),
-	)
+	containerdroot := clictx.GlobalString("containerd-root")
+	if imageroot != "" {
+		containerdroot = filepath.Join(
+			imageroot,
+			strings.Replace(containerdroot, "/", "", 1),
+		)
+	}
 
 	// Computes metadata file i.e. meta.db path based on the global flags
 	// --image-root, --containerd-root, and --manifest-file.
@@ -85,25 +88,22 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 	// managed using docker. This includes Kubernetes containers
 	// managed using docker.
 	if clictx.GlobalBool("docker-managed") {
-		var dockerroot string
+		dockerroot := clictx.GlobalString("docker-root")
 
-		if clictx.GlobalString("docker-root") != "" {
-			dockerroot = clictx.GlobalString("docker-root")
-		} else {
-			dockerroot = "/var/lib/docker"
+		if imageroot != "" {
+			dockerroot = filepath.Join(
+				imageroot,
+				strings.Replace(dockerroot, "/", "", 1),
+			)
 		}
 
-		dockerroot = filepath.Join(
-			imageroot,
-			strings.Replace(dockerroot, "/", "", 1),
-		)
-
 		log.WithFields(log.Fields{
-			"imageRoot":      imageroot,
-			"containerdRoot": containerdroot,
-			"dockerRoot":     dockerroot,
-			"manifestFile":   metadatafile,
-		}).Debug("container environment")
+			"imageroot":      imageroot,
+			"containerdroot": containerdroot,
+			"dockerroot":     dockerroot,
+			"manifestfile":   metadatafile,
+			"snapshotfile":   snapshotfile,
+		}).Debug("docker container environment")
 
 		de, _ := docker.NewExplorer(dockerroot, containerdroot, metadatafile, snapshotfile)
 		return ctx, de, func() {
@@ -116,10 +116,11 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 	// The default is containerd managed containers. This includes
 	// Kubernetes managed containers.
 	log.WithFields(log.Fields{
-		"imageRoot":      imageroot,
-		"containerdRoot": containerdroot,
-		"manifestFile":   metadatafile,
-	}).Debug("container environment")
+		"imageroot":      imageroot,
+		"containerdroot": containerdroot,
+		"manifestfile":   metadatafile,
+		"snapshotfile":   snapshotfile,
+	}).Debug("containerd container environment")
 
 	cde, err := containerd.NewExplorer(containerdroot, metadatafile, snapshotfile)
 	if err != nil {

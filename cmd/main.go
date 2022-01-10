@@ -80,7 +80,7 @@ func main() {
 		cli.StringFlag{
 			Name:  "docker-root",
 			Usage: "specify docker root directory. This is only used with flag --docker-managed",
-			Value: "",
+			Value: "/var/lib/docker",
 		},
 	}
 
