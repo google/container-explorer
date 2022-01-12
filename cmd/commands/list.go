@@ -40,6 +40,7 @@ var ListCommand = cli.Command{
 		listContent,
 		listImages,
 		listSnapshots,
+		listTasks,
 	},
 }
 
@@ -357,6 +358,43 @@ var listSnapshots = cli.Command{
 			fmt.Fprintf(tw, "%v\n", displayValue)
 		}
 
+		return nil
+	},
+}
+
+var listTasks = cli.Command{
+	Name:        "tasks",
+	Aliases:     []string{"task"},
+	Usage:       "list tasks",
+	Description: "list container tasks",
+	Action: func(clictx *cli.Context) error {
+		ctx, exp, cancel, err := explorerEnvironment(clictx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cancel()
+
+		tasks, err := exp.ListTasks(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
+		defer tw.Flush()
+
+		displayFields := "NAMESPACE\tCONTAINER ID\tCONTAINER TYPE\tPID\tSTATUS"
+		fmt.Fprintf(tw, "%v\n", displayFields)
+
+		for _, t := range tasks {
+			displayValues := fmt.Sprintf("%v\t%v\t%v\t%v\t%v",
+				t.Namespace,
+				t.Name,
+				t.ContainerType,
+				t.PID,
+				t.Status,
+			)
+			fmt.Fprintf(tw, "%v\n", displayValues)
+		}
 		return nil
 	},
 }

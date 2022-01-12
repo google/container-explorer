@@ -316,6 +316,14 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 	return nil, nil
 }
 
+// ListTasks returns container task status
+func (e *explorer) ListTasks(cxt context.Context) ([]explorers.Task, error) {
+	log.Error("docker list tasks is not implemented")
+	var tasks []explorers.Task
+
+	return tasks, nil
+}
+
 // InfoContainer returns container internal information.
 func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
 	// default return

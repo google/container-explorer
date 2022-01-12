@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/containerd/containerd/containers"
@@ -38,14 +39,15 @@ import (
 )
 
 type explorer struct {
-	root     string   // containerd root
-	manifest string   // path to manifest database file i.e. meta.db
-	snapshot string   // path to snapshot database file i.e. metadata.db
-	mdb      *bolt.DB // manifest database
+	imageroot string   // mounted image path
+	root      string   // containerd root
+	manifest  string   // path to manifest database file i.e. meta.db
+	snapshot  string   // path to snapshot database file i.e. metadata.db
+	mdb       *bolt.DB // manifest database
 }
 
 // NewExplorer returns a ContainerExplorer interface to explore containerd.
-func NewExplorer(root string, manifest string, snapshot string) (explorers.ContainerExplorer, error) {
+func NewExplorer(imageroot string, root string, manifest string, snapshot string) (explorers.ContainerExplorer, error) {
 	opt := &bolt.Options{
 		ReadOnly: true,
 	}
@@ -55,10 +57,11 @@ func NewExplorer(root string, manifest string, snapshot string) (explorers.Conta
 	}
 
 	return &explorer{
-		root:     root,
-		manifest: manifest,
-		snapshot: snapshot,
-		mdb:      db,
+		imageroot: imageroot,
+		root:      root,
+		manifest:  manifest,
+		snapshot:  snapshot,
+		mdb:       db,
 	}, nil
 }
 
@@ -248,6 +251,142 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 	}
 
 	return cesnapshots, nil
+}
+
+// ListTasks returns container tasks status
+func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
+	if e.imageroot == "" {
+		log.Error("image-root is empty. Unable to list tasks.")
+		return nil, nil
+	}
+
+	// Holds container task information.
+	var cetasks []explorers.Task
+
+	ctrs, err := e.ListContainers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers: %w", err)
+	}
+	for _, ctr := range ctrs {
+		cetask, err := e.GetContainerTask(ctx, ctr)
+		if err != nil {
+			return nil, fmt.Errorf("failed getting a container's task: %w", err)
+		}
+
+		cetasks = append(cetasks, cetask)
+	}
+
+	return cetasks, nil
+}
+
+// GetContainerTask returns container task
+func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container) (explorers.Task, error) {
+	ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
+
+	// Only return container spec
+	v, err := e.InfoContainer(ctx, ctr.ID, true)
+	if err != nil {
+		return explorers.Task{}, fmt.Errorf("failed getting container spec for %s container: %w", ctr.ID, err)
+	}
+	ctrspec := v.(spec.Spec)
+
+	var cgroupspath string
+	var containertype string
+
+	// Compute cgroup path for docker and containerd containers
+	if strings.Contains(ctrspec.Linux.CgroupsPath, "docker") {
+		containertype = "docker"
+
+		// compute for docker
+		//
+		// Spec file `config.json` contains key cgroupsPath as `system.slice:docker:<container_id>`.
+		// The path maps on file system to `/sys/fs/cgroup/system.slice/docker-<container_id>.scope`.
+		m := strings.Split(ctrspec.Linux.CgroupsPath, ":")
+		if len(m) != 3 {
+			return explorers.Task{}, fmt.Errorf("expecting pattern system.slice:docker:<container_id> and got %d fields", len(m))
+		}
+
+		// docker cgroup directory i.e. system.slice
+		cgroupns := m[0]
+		// container cgroup information
+		cgroupctrdir := fmt.Sprintf("%s-%s.scope", m[1], m[2])
+		// abolute path to container cgroup directory
+		cgroupspath = filepath.Join(e.imageroot, "sys", "fs", "cgroup", cgroupns, cgroupctrdir)
+	} else {
+		containertype = "containerd"
+
+		// compute for containerd
+		//
+		// Spec file contains "cgroupsPath": "/default/<container_id>",
+		cgroupspath = filepath.Join(e.imageroot, "sys", "fs", "cgroup", ctrspec.Linux.CgroupsPath)
+	}
+
+	// Verify the path actually exist on the system.
+	// If a container is deleted then cgroup may not exist for the container
+	if !pathExists(cgroupspath, false) {
+		log.WithFields(log.Fields{
+			"contianerid": ctr.ID,
+			"cgroupspath": cgroupspath,
+		}).Error("container cgroup path does not exit")
+
+		return explorers.Task{
+			Namespace:     ctr.Namespace,
+			Name:          ctr.ID,
+			ContainerType: containertype,
+			Status:        "TERMINATED",
+		}, nil
+	}
+
+	status, err := getTaskStatus(cgroupspath)
+	if err != nil {
+		// Only print the error message.
+		// The default return should contain status UNKNOWN
+		log.WithField("containerid", ctr.ID).Error("failed getting container status for container: ", err)
+	}
+
+	// Get container process ID
+	ctrpid := getTaskPID(cgroupspath)
+	if ctrpid == -1 && containertype == "containerd" {
+		state, err := e.GetContainerState(ctx, ctr)
+		if err != nil {
+			log.WithField("containerid", ctr.ID).Error("failed getting container state")
+		}
+		if state.InitProcessPid != 0 {
+			ctrpid = state.InitProcessPid
+		}
+	}
+
+	return explorers.Task{
+		Namespace:     ctr.Namespace,
+		Name:          ctr.ID,
+		PID:           ctrpid,
+		ContainerType: containertype,
+		Status:        status,
+	}, nil
+}
+
+// GetContainerState returns container runtime state
+func (e *explorer) GetContainerState(ctx context.Context, ctr explorers.Container) (explorers.State, error) {
+	statedir := filepath.Join(e.imageroot, "run", "containerd", "runc", ctr.Namespace, ctr.ID)
+	if !pathExists(statedir, false) {
+		return explorers.State{}, fmt.Errorf("container state directory %s did not exist", statedir)
+	}
+
+	statefile := filepath.Join(statedir, "state.json")
+	if !pathExists(statefile, true) {
+		return explorers.State{}, fmt.Errorf("container state file %s did not exist", statefile)
+	}
+
+	data, err := os.ReadFile(statefile)
+	if err != nil {
+		return explorers.State{}, err
+	}
+
+	var state explorers.State
+	if err := json.Unmarshal(data, &state); err != nil {
+		return explorers.State{}, fmt.Errorf("unmarshalling state data: %w", err)
+	}
+	return state, nil
 }
 
 // InfoContainer returns container internal information.
@@ -477,4 +616,90 @@ func parseSpec(any *types.Any) (interface{}, error) {
 	var v spec.Spec
 	json.Unmarshal(any.Value, &v)
 	return v, nil
+}
+
+// getTaskStatus returns task status
+func getTaskStatus(cgrouppath string) (string, error) {
+	populated, frozen, err := readCgroupEvents(cgrouppath)
+	if err != nil {
+		return "UNKNOWN", fmt.Errorf("reading group.events: %w", err)
+	}
+
+	if populated == 0 && frozen == 0 {
+		return "STOPPED", nil
+	} else if populated == 1 && frozen == 0 {
+		return "RUNNING", nil
+	} else if populated == 1 && frozen == 1 {
+		return "PAUSED", nil
+	}
+
+	return "UNKNOWN", fmt.Errorf("unknown status with values populated: %d, frozen: %d", populated, frozen)
+}
+
+// getTaskPID returns process ID of the containers
+func getTaskPID(path string) int {
+	pidfile := filepath.Join(path, "cgroup.procs")
+	if !pathExists(pidfile, true) {
+		return -1
+	}
+
+	data, err := os.ReadFile(pidfile)
+	if err != nil {
+		log.WithField("path", pidfile).Error("reading cgroup.procs: ", err)
+		return -1
+	}
+
+	pid, err := strconv.Atoi(strings.Split(string(data), "\n")[0])
+	if err != nil {
+		log.WithField("path", pidfile).Info("converting to int: ", err)
+		return -1
+	}
+	return pid
+}
+
+// readCgroupEvents returns populated and frozen status
+func readCgroupEvents(path string) (int, int, error) {
+	data, err := os.ReadFile(filepath.Join(path, "cgroup.events"))
+	if err != nil {
+		return -1, -1, err
+	}
+
+	populated := -1
+	frozen := -1
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "populated ") {
+			val := strings.Replace(line, "populated ", "", -1)
+			val = strings.TrimSpace(val)
+
+			populated, err = strconv.Atoi(val)
+			if err != nil {
+				populated = -1
+			}
+		}
+
+		if strings.Contains(line, "frozen ") {
+			val := strings.Replace(line, "frozen ", "", -1)
+			val = strings.TrimSpace(val)
+
+			frozen, err = strconv.Atoi(val)
+			if err != nil {
+				frozen = -1
+			}
+		}
+	}
+	return populated, frozen, nil
+}
+
+// pathExists returns true if the path exists
+func pathExists(path string, isfile bool) bool {
+	finfo, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+
+	if isfile {
+		return !finfo.IsDir()
+	}
+	return finfo.IsDir()
 }

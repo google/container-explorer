@@ -122,7 +122,7 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 		"snapshotfile":   snapshotfile,
 	}).Debug("containerd container environment")
 
-	cde, err := containerd.NewExplorer(containerdroot, metadatafile, snapshotfile)
+	cde, err := containerd.NewExplorer(imageroot, containerdroot, metadatafile, snapshotfile)
 	if err != nil {
 		return ctx, nil, func() { cancel() }, err
 	}
