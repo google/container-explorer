@@ -560,8 +560,25 @@ func convertToContainerExplorerContainer(config ConfigFile) explorers.Container 
 		}
 	}
 
+	var status string
+	const notStarted = "0001-01-01T00:00:00Z"
+
+	if config.State.StartedAt.Format("2006-01-02T15:04:05Z") == notStarted {
+		status = "CREATED"
+	} else if config.State.Running && config.State.Paused {
+		status = "PAUSED"
+	} else if config.State.Running && !config.State.Paused {
+		status = "RUNNING"
+	} else if !config.State.Running && config.State.Paused {
+		status = "UNKNOWN"
+	} else if !config.State.Running && !config.State.Paused {
+		status = "STOPPED"
+	}
+
 	return explorers.Container{
-		Hostname: config.Config.Hostname,
+		Hostname:      config.Config.Hostname,
+		ProcessID:     int(config.State.Pid),
+		ContainerType: "docker",
 		Container: containers.Container{
 			ID:          config.ID,
 			CreatedAt:   config.Created,
@@ -573,6 +590,7 @@ func convertToContainerExplorerContainer(config ConfigFile) explorers.Container 
 		},
 		Running:      config.State.Running,
 		ExposedPorts: exposedports,
+		Status:       status,
 	}
 }
 

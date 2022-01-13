@@ -23,6 +23,9 @@ type Container struct {
 	Namespace        string
 	Hostname         string
 	SupportContainer bool
+	ContainerType    string
+	ProcessID        int
+	Status           string
 
 	// containerd specific fields
 	containers.Container

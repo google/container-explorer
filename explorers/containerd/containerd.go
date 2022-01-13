@@ -23,7 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/containerd/containerd/containers"
@@ -127,7 +126,17 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 		}
 
 		for _, result := range results {
-			cecontainers = append(cecontainers, convertToContainerExplorerContainer(ns, result))
+			//cecontainers = append(cecontainers, convertToContainerExplorerContainer(ns, result))
+			cectr := convertToContainerExplorerContainer(ns, result)
+			task, err := e.GetContainerTask(ctx, cectr)
+			if err != nil {
+				log.WithField("containerid", cectr.ID).Error("failed getting container task")
+			}
+			cectr.ProcessID = task.PID
+			cectr.ContainerType = task.ContainerType
+			cectr.Status = task.Status
+
+			cecontainers = append(cecontainers, cectr)
 		}
 	}
 	return cecontainers, nil
@@ -323,7 +332,7 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 
 	// Verify the path actually exist on the system.
 	// If a container is deleted then cgroup may not exist for the container
-	if !pathExists(cgroupspath, false) {
+	if !explorers.PathExists(cgroupspath, false) {
 		log.WithFields(log.Fields{
 			"contianerid": ctr.ID,
 			"cgroupspath": cgroupspath,
@@ -333,11 +342,11 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 			Namespace:     ctr.Namespace,
 			Name:          ctr.ID,
 			ContainerType: containertype,
-			Status:        "TERMINATED",
+			Status:        "UNKNOWN",
 		}, nil
 	}
 
-	status, err := getTaskStatus(cgroupspath)
+	status, err := explorers.GetTaskStatus(cgroupspath)
 	if err != nil {
 		// Only print the error message.
 		// The default return should contain status UNKNOWN
@@ -345,7 +354,7 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 	}
 
 	// Get container process ID
-	ctrpid := getTaskPID(cgroupspath)
+	ctrpid := explorers.GetTaskPID(cgroupspath)
 	if ctrpid == -1 && containertype == "containerd" {
 		state, err := e.GetContainerState(ctx, ctr)
 		if err != nil {
@@ -368,12 +377,12 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 // GetContainerState returns container runtime state
 func (e *explorer) GetContainerState(ctx context.Context, ctr explorers.Container) (explorers.State, error) {
 	statedir := filepath.Join(e.imageroot, "run", "containerd", "runc", ctr.Namespace, ctr.ID)
-	if !pathExists(statedir, false) {
+	if !explorers.PathExists(statedir, false) {
 		return explorers.State{}, fmt.Errorf("container state directory %s did not exist", statedir)
 	}
 
 	statefile := filepath.Join(statedir, "state.json")
-	if !pathExists(statefile, true) {
+	if !explorers.PathExists(statefile, true) {
 		return explorers.State{}, fmt.Errorf("container state file %s did not exist", statefile)
 	}
 
@@ -616,90 +625,4 @@ func parseSpec(any *types.Any) (interface{}, error) {
 	var v spec.Spec
 	json.Unmarshal(any.Value, &v)
 	return v, nil
-}
-
-// getTaskStatus returns task status
-func getTaskStatus(cgrouppath string) (string, error) {
-	populated, frozen, err := readCgroupEvents(cgrouppath)
-	if err != nil {
-		return "UNKNOWN", fmt.Errorf("reading group.events: %w", err)
-	}
-
-	if populated == 0 && frozen == 0 {
-		return "STOPPED", nil
-	} else if populated == 1 && frozen == 0 {
-		return "RUNNING", nil
-	} else if populated == 1 && frozen == 1 {
-		return "PAUSED", nil
-	}
-
-	return "UNKNOWN", fmt.Errorf("unknown status with values populated: %d, frozen: %d", populated, frozen)
-}
-
-// getTaskPID returns process ID of the containers
-func getTaskPID(path string) int {
-	pidfile := filepath.Join(path, "cgroup.procs")
-	if !pathExists(pidfile, true) {
-		return -1
-	}
-
-	data, err := os.ReadFile(pidfile)
-	if err != nil {
-		log.WithField("path", pidfile).Error("reading cgroup.procs: ", err)
-		return -1
-	}
-
-	pid, err := strconv.Atoi(strings.Split(string(data), "\n")[0])
-	if err != nil {
-		log.WithField("path", pidfile).Info("converting to int: ", err)
-		return -1
-	}
-	return pid
-}
-
-// readCgroupEvents returns populated and frozen status
-func readCgroupEvents(path string) (int, int, error) {
-	data, err := os.ReadFile(filepath.Join(path, "cgroup.events"))
-	if err != nil {
-		return -1, -1, err
-	}
-
-	populated := -1
-	frozen := -1
-
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, "populated ") {
-			val := strings.Replace(line, "populated ", "", -1)
-			val = strings.TrimSpace(val)
-
-			populated, err = strconv.Atoi(val)
-			if err != nil {
-				populated = -1
-			}
-		}
-
-		if strings.Contains(line, "frozen ") {
-			val := strings.Replace(line, "frozen ", "", -1)
-			val = strings.TrimSpace(val)
-
-			frozen, err = strconv.Atoi(val)
-			if err != nil {
-				frozen = -1
-			}
-		}
-	}
-	return populated, frozen, nil
-}
-
-// pathExists returns true if the path exists
-func pathExists(path string, isfile bool) bool {
-	finfo, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-
-	if isfile {
-		return !finfo.IsDir()
-	}
-	return finfo.IsDir()
 }

@@ -114,7 +114,7 @@ var listContainers = cli.Command{
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		displayFields := "NAMESPACE\tCONTAINER ID\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT"
+		displayFields := "NAMESPACE\tTYPE\tCONTAINER ID\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT\tPID\tSTATUS"
 		// show updated timestamp
 		if clictx.Bool("updated") {
 			displayFields = fmt.Sprintf("%v\tUPDATED AT", displayFields)
@@ -160,12 +160,15 @@ var listContainers = cli.Command{
 				}
 			}
 
-			displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
+			displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s",
 				container.Namespace,
+				container.ContainerType,
 				container.ID,
 				container.Hostname,
 				container.Image,
 				container.CreatedAt.Format(tsLayout),
+				container.ProcessID,
+				container.Status,
 			)
 			// show updated timestamp value
 			if clictx.Bool("updated") {
