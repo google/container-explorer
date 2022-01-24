@@ -82,6 +82,10 @@ func main() {
 			Usage: "specify docker root directory. This is only used with flag --docker-managed",
 			Value: "/var/lib/docker",
 		},
+		cli.StringFlag{
+			Name:  "support-container-data",
+			Usage: "a yaml file containing information about support containers",
+		},
 	}
 
 	app.Commands = []cli.Command{

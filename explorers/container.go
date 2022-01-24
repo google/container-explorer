@@ -22,6 +22,7 @@ import "github.com/containerd/containerd/containers"
 type Container struct {
 	Namespace        string
 	Hostname         string
+	ImageBase        string
 	SupportContainer bool
 	ContainerType    string
 	ProcessID        int

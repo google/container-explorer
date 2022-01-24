@@ -38,7 +38,6 @@ import (
 )
 
 const (
-	configV1Filename     = "config.json"
 	configV2Filename     = "config.v2.json"
 	containersDirName    = "containers"
 	lowerdirName         = "lower"
@@ -46,6 +45,8 @@ const (
 	repositoriesFileName = "repositories.json"
 	storageOverlay2      = "overlay2"
 )
+
+var imagerepo map[string]string
 
 type ImageName map[string]string
 
@@ -58,12 +59,13 @@ type explorer struct {
 	contaierdroot string
 	manifest      string
 	snapshot      string
-	mdb           *bolt.DB // manifest database file
+	mdb           *bolt.DB                    // manifest database file
+	sc            *explorers.SupportContainer // support container object
 }
 
 // NewExplorer returns a ContainerExplorer interface to explorer docker managed
 // containers.
-func NewExplorer(root string, containerdroot string, manifest string, snapshot string) (explorers.ContainerExplorer, error) {
+func NewExplorer(root string, containerdroot string, manifest string, snapshot string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
 	var db *bolt.DB
 	var err error
 
@@ -90,6 +92,7 @@ func NewExplorer(root string, containerdroot string, manifest string, snapshot s
 		manifest:      manifest,
 		snapshot:      snapshot,
 		mdb:           db,
+		sc:            sc,
 	}, nil
 }
 
@@ -153,48 +156,15 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 		return nil, err
 	}
 
-	imagerepositories, _ := e.GetRepositories(ctx)
-
 	var cecontainers []explorers.Container
 
 	for _, containerid := range containerids {
-		containerpath := filepath.Join(containersdir, containerid)
-
-		// Read docker config version 2
-		configpath := filepath.Join(containerpath, configV2Filename)
-		if fileExists(configpath) {
-			data, err := ioutil.ReadFile(configpath)
-			if err != nil {
-				return nil, fmt.Errorf("reading docker config file %s %v", configV2Filename, err)
-			}
-
-			var config ConfigFile
-			if err := json.Unmarshal(data, &config); err != nil {
-				return nil, fmt.Errorf("unmarshalling config file data %v", err)
-			}
-			cecontainer := convertToContainerExplorerContainer(config)
-
-			// Use friendly image name if exists
-			if imagerepositories != nil {
-				if val, found := imagerepositories[cecontainer.Image]; found {
-					cecontainer.Image = val
-				}
-			}
-			cecontainers = append(cecontainers, cecontainer)
-
-			continue
+		cectr, err := e.GetCEContainer(ctx, containerid)
+		if err != nil {
+			return nil, err
 		}
 
-		// Read docker config version 1
-		configpath = filepath.Join(containerpath, configV1Filename)
-		if fileExists(configpath) {
-			// TODO (rmaskey): parse v1 confg
-			continue
-		}
-
-		log.WithFields(log.Fields{
-			"containerid": containerid,
-		}).Error("configuration file not found")
+		cecontainers = append(cecontainers, cectr)
 	}
 
 	return cecontainers, nil
@@ -295,7 +265,8 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 				}
 
 				ceimages = append(ceimages, explorers.Image{
-					Image: image,
+					Image:                 image,
+					SupportContainerImage: e.sc.SupportContainerImage(imageBasename(image.Name)),
 				})
 			}
 		}
@@ -307,26 +278,33 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 // ListContent returns content information.
 func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error) {
 	// TODO(rmaskey): implement the function
+	fmt.Printf("INFO: listing content not implemented\n\n")
+
 	return nil, nil
 }
 
 // ListSnapshots returns snapshot information.
 func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyInfo, error) {
 	// TODO(rmaskey): implement the function
+	fmt.Printf("INFO: listing snapshots not implemented\n\n")
+
 	return nil, nil
 }
 
 // ListTasks returns container task status
 func (e *explorer) ListTasks(cxt context.Context) ([]explorers.Task, error) {
-	log.Error("docker list tasks is not implemented")
-	var tasks []explorers.Task
+	// TODO(rmaskey): implement the function
+	fmt.Printf("INFO: listing task status not implemented\n\n")
 
+	var tasks []explorers.Task
 	return tasks, nil
 }
 
 // InfoContainer returns container internal information.
 func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
-	// default return
+	// TODO(rmaskey): implement the function
+	fmt.Printf("INFO: container info not implemented\n\n")
+
 	return nil, nil
 }
 
@@ -410,17 +388,9 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, sk
 	}
 
 	for _, containerid := range containerids {
-		container, err := e.GetContainer(ctx, containerid)
+		cecontainer, err := e.GetCEContainer(ctx, containerid)
 		if err != nil {
 			log.WithField("containerid", containerid).Error("getting container details")
-			log.WithField("containerid", containerid).Warn("skipping container mount")
-			continue
-		}
-
-		// Skip mounting Kubernetes support containers
-		cecontainer := convertToContainerExplorerContainer(container)
-		if cecontainer.ID == "" {
-			log.WithField("containerid", containerid).Error("failed to convert to ContainerExplorer container")
 			log.WithField("containerid", containerid).Warn("skipping container mount")
 			continue
 		}
@@ -434,7 +404,7 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, sk
 		}
 
 		// Create mountpoint for each container
-		ctrmountpoint := filepath.Join(mountpoint, container.ID)
+		ctrmountpoint := filepath.Join(mountpoint, cecontainer.ID)
 		if err := os.MkdirAll(ctrmountpoint, 0755); err != nil {
 			log.WithFields(log.Fields{
 				"namespace":   cecontainer.Namespace,
@@ -487,6 +457,34 @@ func (e *explorer) GetContainer(ctx context.Context, containerid string) (Config
 	}
 
 	return container, nil
+}
+
+// GetCEContainer returns ContainerExplorer container
+func (e *explorer) GetCEContainer(ctx context.Context, containerid string) (explorers.Container, error) {
+	if imagerepo == nil {
+		imagerepo, _ = e.GetRepositories(ctx)
+	}
+
+	// Get docker container configuration based on container ID
+	config, err := e.GetContainer(ctx, containerid)
+	if err != nil {
+		return explorers.Container{}, err
+	}
+
+	cectr := convertToContainerExplorerContainer(config)
+
+	// Use image friendly name if exits
+	if imagerepo != nil {
+		if val, found := imagerepo[cectr.Image]; found {
+			cectr.Image = val
+		}
+	}
+
+	// Extrac imagebase name from image name
+	cectr.ImageBase = imageBasename(cectr.Image)
+	cectr.SupportContainer = e.sc.IsSupportContainer(cectr)
+
+	return cectr, nil
 }
 
 func fileExists(path string) bool {
@@ -625,4 +623,20 @@ func readImageContent(storagename string, storagepath string, digest digest.Dige
 	}
 
 	return imagecontent, nil
+}
+
+// imageBasename returns the base name of an image
+func imageBasename(name string) string {
+	imagebase := strings.Replace(name, "\"", "", -1)
+
+	if strings.Contains(imagebase, "@") {
+		imagebase = strings.Split(imagebase, "@")[0]
+	}
+
+	log.WithFields(log.Fields{
+		"imagename": name,
+		"imagebase": imagebase,
+	}).Debug("extracting imagebase from image")
+
+	return imagebase
 }

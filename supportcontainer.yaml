@@ -1,0 +1,30 @@
+---
+names:
+  - konnectivity-agent
+images:
+  - gcr.io/gke-release-staging/cluster-proportional-autoscaler-amd64
+  - gcr.io/k8s-ingress-image-push/ingress-gce-404-server-with-metrics
+  - gke.gcr.io/cluster-proportional-autoscaler
+  - gke.gcr.io/csi-node-driver-registrar
+  - gke.gcr.io/event-exporter
+  - gke.gcr.io/fluent-bit
+  - gke.gcr.io/fluent-bit-gke-exporter
+  - gke.gcr.io/gcp-compute-persistent-disk-csi-driver
+  - gke.gcr.io/gke-metrics-agent
+  - gke.gcr.io/k8s-dns-dnsmasq-nanny
+  - gke.gcr.io/k8s-dns-kube-dns
+  - gke.gcr.io/k8s-dns-sidecar
+  - gke.gcr.io/kube-proxy-amd64
+  - gke.gcr.io/prometheus-to-sd
+  #- gke.gcr.io/proxy-agent
+  - k8s.gcr.io/metrics-server/metrics-server
+  - k8s.gcr.io/pause
+  - gcr.io/gke-release-staging/addon-resizer
+  - gcr.io/gke-release-staging/cpvpa-amd64
+  - gcr.io/google-containers/pause-amd64
+  - gke.gcr.io/addon-resizer
+  - gke.gcr.io/cpvpa-amd64
+  - k8s.gcr.io/kube-proxy-amd64
+  - k8s.gcr.io/prometheus-to-sd
+labels:
+  - io.kubernetes.pod.namespace=kube-system

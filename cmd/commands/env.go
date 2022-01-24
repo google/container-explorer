@@ -82,6 +82,16 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 		snapshotfile = filepath.Join(containerdroot, "io.containerd.snapshotter.v1.overlayfs", "metadata.db")
 	}
 
+	// Read support container data if provided using global switch.
+	var sc *explorers.SupportContainer
+	if clictx.GlobalString("support-container-data") != "" {
+		var err error
+		sc, err = explorers.NewSupportContainer(clictx.GlobalString("support-container-data"))
+		if err != nil {
+			log.Errorf("getting new support container: %v", err)
+		}
+	}
+
 	// Handle docker managed containers.
 	//
 	// Use the global flag --docker-managed to specify container
@@ -103,9 +113,10 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 			"dockerroot":     dockerroot,
 			"manifestfile":   metadatafile,
 			"snapshotfile":   snapshotfile,
+			"sc":             &sc,
 		}).Debug("docker container environment")
 
-		de, _ := docker.NewExplorer(dockerroot, containerdroot, metadatafile, snapshotfile)
+		de, _ := docker.NewExplorer(dockerroot, containerdroot, metadatafile, snapshotfile, sc)
 		return ctx, de, func() {
 			cancel()
 		}, nil
@@ -122,7 +133,7 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 		"snapshotfile":   snapshotfile,
 	}).Debug("containerd container environment")
 
-	cde, err := containerd.NewExplorer(imageroot, containerdroot, metadatafile, snapshotfile)
+	cde, err := containerd.NewExplorer(imageroot, containerdroot, metadatafile, snapshotfile, sc)
 	if err != nil {
 		return ctx, nil, func() { cancel() }, err
 	}
