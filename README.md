@@ -1,5 +1,9 @@
 # Container-Explorer
 
+[![GoDoc](https://pkg.go.dev/badge/github.com/google/container-explorer?status.svg)](https://pkg.go.dev/github.com/google/container-explorer?tab=doc)
+[![Go Report Card](https://goreportcard.com/badge/github.com/google/container-explorer)](https://goreportcard.com/report/github.com/google/container-explorer)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 Container-Explorer is a tool to explore containerd installation on a mounted image.
 
 Container-Explorer attempts to provide the similar exploration functionalities provided by `ctr` utility.
