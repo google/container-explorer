@@ -18,6 +18,8 @@ package commands
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -30,8 +32,8 @@ import (
 )
 
 const (
-	containerdMetadataFilename = "meta.db"
-	containerdMetadataDir      = "io.containerd.metadata"
+	containerdRootDir = "/var/lib/containerd"
+	dockerRootDir     = "/var/lib/docker"
 )
 
 // explorerEnvironment returns a ContainerExplorer interface.
@@ -41,46 +43,10 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 	ctx, cancel := context.WithCancel(context.Background())
 
 	imageroot := clictx.GlobalString("image-root")
+	containerdroot := clictx.GlobalString("containerd-root")
+	dockerroot := clictx.GlobalString("docker-root")
 	metadatafile := clictx.GlobalString("metadata-file")
 	snapshotfile := clictx.GlobalString("snapshot-metadata-file")
-
-	// Computes containerdroot based on the global flags --image-root
-	// and --containerd-root
-	containerdroot := clictx.GlobalString("containerd-root")
-	if imageroot != "" {
-		containerdroot = filepath.Join(
-			imageroot,
-			strings.Replace(containerdroot, "/", "", 1),
-		)
-	}
-
-	// Computes metadata file i.e. meta.db path based on the global flags
-	// --image-root, --containerd-root, and --manifest-file.
-	//
-	// The containerd implementation requires the meta.db file.
-	// The docker implementation may use the meta.db if exists.
-	if metadatafile == "" {
-		dirs, err := filepath.Glob(filepath.Join(containerdroot, "*"))
-		if err != nil {
-			return ctx, nil, func() { cancel() }, err
-		}
-		for _, d := range dirs {
-			if strings.Contains(d, containerdMetadataDir) {
-				metadatafile = filepath.Join(d, containerdMetadataFilename)
-				break
-			}
-		}
-	}
-
-	// Computes the snapshot medata file i.e. metadata.db that contains
-	// crucial information about the overlay file system layers.
-	//
-	// The containerd implementation requires the metadata.db file to compute
-	// the overlay file system layers. The default location of the metadata.db
-	// for containerd is /var/lib/containerd/io.containerd.snapshotter.v1.overlay/metadata.db
-	if snapshotfile == "" {
-		snapshotfile = filepath.Join(containerdroot, "io.containerd.snapshotter.v1.overlayfs", "metadata.db")
-	}
 
 	// Read support container data if provided using global switch.
 	var sc *explorers.SupportContainer
@@ -98,12 +64,15 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 	// managed using docker. This includes Kubernetes containers
 	// managed using docker.
 	if clictx.GlobalBool("docker-managed") {
-		dockerroot := clictx.GlobalString("docker-root")
+		if dockerroot == "" && imageroot == "" {
+			fmt.Printf("Missing required argument. Use --image-root or --docker-root\n")
+			os.Exit(1)
+		}
 
-		if imageroot != "" {
+		if imageroot != "" && dockerroot == "" {
 			dockerroot = filepath.Join(
 				imageroot,
-				strings.Replace(dockerroot, "/", "", 1),
+				strings.Replace(dockerRootDir, "/", "", 1),
 			)
 		}
 
@@ -126,9 +95,29 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 	//
 	// The default is containerd managed containers. This includes
 	// Kubernetes managed containers.
+	if containerdroot == "" && imageroot == "" {
+		fmt.Printf("Missing required arguments. Use --image-root or --containerd-root\n")
+		os.Exit(1)
+	}
+
+	if imageroot != "" && containerdroot == "" {
+		containerdroot = filepath.Join(
+			imageroot,
+			strings.Replace(containerdRootDir, "/", "", 1),
+		)
+	}
+
+	if metadatafile == "" {
+		metadatafile = filepath.Join(containerdroot, "io.containerd.metadata.v1.bolt", "meta.db")
+	}
+	if snapshotfile == "" {
+		snapshotfile = filepath.Join(containerdroot, "io.containerd.snapshotter.v1.overlayfs", "metadata.db")
+	}
+
 	log.WithFields(log.Fields{
 		"imageroot":      imageroot,
 		"containerdroot": containerdroot,
+		"dockerroot":     dockerroot,
 		"manifestfile":   metadatafile,
 		"snapshotfile":   snapshotfile,
 	}).Debug("containerd container environment")

@@ -51,10 +51,26 @@ func main() {
 			Name:  "debug",
 			Usage: "enable debug messages",
 		},
+
+		// Removing the default containerd-root value
+		//
+		// A bug was discovered when analysing docker managed containers and
+		// the `containerd-root` default value was set.
+		//
+		// The bug occurs only when the analysis host had containerd running
+		// and docker-root path is specified rather than image path.
+		//
+		// i.e container-explorer --docker-managed --docker-root <path>
+		//
+		// Since the default containerd-root is set to /var/lib/containerd,
+		// container-explorer attempts access manifest in /var/lib/containerd.
+		// This leads to inaccurate information or issue accessing locked file.
+		//
+		// Workaround: Remove the default values in flag and specify in env.go
+		// as required.
 		cli.StringFlag{
 			Name:  "containerd-root, c",
 			Usage: "specify containerd root directory",
-			Value: "/var/lib/containerd",
 		},
 		cli.StringFlag{
 			Name:  "image-root, i",
@@ -80,7 +96,6 @@ func main() {
 		cli.StringFlag{
 			Name:  "docker-root",
 			Usage: "specify docker root directory. This is only used with flag --docker-managed",
-			Value: "/var/lib/docker",
 		},
 		cli.StringFlag{
 			Name:  "support-container-data",
