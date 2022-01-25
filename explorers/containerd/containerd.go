@@ -38,15 +38,16 @@ import (
 )
 
 type explorer struct {
-	imageroot string   // mounted image path
-	root      string   // containerd root
-	manifest  string   // path to manifest database file i.e. meta.db
-	snapshot  string   // path to snapshot database file i.e. metadata.db
-	mdb       *bolt.DB // manifest database
+	imageroot string                      // mounted image path
+	root      string                      // containerd root
+	manifest  string                      // path to manifest database file i.e. meta.db
+	snapshot  string                      // path to snapshot database file i.e. metadata.db
+	mdb       *bolt.DB                    // manifest database
+	sc        *explorers.SupportContainer // support container structure object
 }
 
 // NewExplorer returns a ContainerExplorer interface to explore containerd.
-func NewExplorer(imageroot string, root string, manifest string, snapshot string) (explorers.ContainerExplorer, error) {
+func NewExplorer(imageroot string, root string, manifest string, snapshot string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
 	opt := &bolt.Options{
 		ReadOnly: true,
 	}
@@ -61,6 +62,7 @@ func NewExplorer(imageroot string, root string, manifest string, snapshot string
 		manifest:  manifest,
 		snapshot:  snapshot,
 		mdb:       db,
+		sc:        sc,
 	}, nil
 }
 
@@ -126,8 +128,10 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 		}
 
 		for _, result := range results {
-			//cecontainers = append(cecontainers, convertToContainerExplorerContainer(ns, result))
 			cectr := convertToContainerExplorerContainer(ns, result)
+			cectr.ImageBase = imageBasename(cectr.Image)
+			cectr.SupportContainer = e.sc.IsSupportContainer(cectr)
+
 			task, err := e.GetContainerTask(ctx, cectr)
 			if err != nil {
 				log.WithField("containerid", cectr.ID).Error("failed getting container task")
@@ -164,10 +168,9 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 		}
 
 		for _, result := range results {
-			//ceimages = append(ceimages, convertToContainerExplorerImage(ns, result))
 			ceimages = append(ceimages, explorers.Image{
 				Namespace:             ns,
-				SupportContainerImage: isKubernetesSupportContainerImage(result.Name),
+				SupportContainerImage: e.sc.SupportContainerImage(imageBasename(result.Name)),
 				Image:                 result,
 			})
 		}
@@ -336,7 +339,7 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 		log.WithFields(log.Fields{
 			"contianerid": ctr.ID,
 			"cgroupspath": cgroupspath,
-		}).Error("container cgroup path does not exit")
+		}).Debug("container cgroup path does not exit")
 
 		return explorers.Task{
 			Namespace:     ctr.Namespace,
@@ -547,13 +550,25 @@ func (e *explorer) Close() error {
 // superset of containers.Container object.
 func convertToContainerExplorerContainer(ns string, ctr containers.Container) explorers.Container {
 	var hostname string
-	if ctr.Spec != nil && ctr.Spec.Value != nil {
+
+	// Try using io.kubernetes.pod.name as the hostname.
+	//
+	// TODO(rmaskey): Research if EKS and AKS has similar labels used
+	// for storing hostname.
+	if value, match := ctr.Labels["io.kubernetes.pod.name"]; match {
+		hostname = value
+	}
+
+	// Get hostname from runtime fields
+	if hostname == "" && ctr.Spec != nil && ctr.Spec.Value != nil {
 		var v spec.Spec
 		json.Unmarshal(ctr.Spec.Value, &v)
 
 		if v.Hostname != "" {
 			hostname = v.Hostname
 		} else {
+			// Using HOSTNAME from environment as last resort.
+			// HOSTNAME contains node's hostname.
 			for _, kv := range v.Process.Env {
 				if strings.HasPrefix(kv, "HOSTNAME=") {
 					hostname = strings.TrimSpace(strings.Split(kv, "=")[1])
@@ -564,41 +579,23 @@ func convertToContainerExplorerContainer(ns string, ctr containers.Container) ex
 	}
 
 	return explorers.Container{
-		Namespace:        ns,
-		Hostname:         hostname,
-		SupportContainer: isKubernetesSupportContainer(ctr),
-		Container:        ctr,
+		Namespace: ns,
+		Hostname:  hostname,
+		Container: ctr,
 	}
 }
 
-// The support containers created by GKE are labeled as
-// io.kubernetes.pod.namespace="kube-system"
-const (
-	k8sPodNamespace        = "io.kubernetes.pod.namespace"
-	k8sSupportPodNamespace = "kube-system"
-)
-
-// isKubernetesSupportContainer returns true for a container that was created
-// by Kubernetes to facilitate the management of containers.
-//
-// Example of such containers are kubeproxy, kube-dns etc.
-func isKubernetesSupportContainer(ctr containers.Container) bool {
-	// Checking for container label kube-system
-	if val, found := ctr.Labels[k8sPodNamespace]; found {
-		if val == k8sSupportPodNamespace {
-			return true
-		}
-	}
-	return isKubernetesSupportContainerImage(ctr.Image)
+// parseSpec parses containerd spec and returns the information as JSON.
+func parseSpec(any *types.Any) (interface{}, error) {
+	var v spec.Spec
+	json.Unmarshal(any.Value, &v)
+	return v, nil
 }
 
-// isKubernetesSupportContainerImage returns true if the container image is
-// used to create support container
-//
-// Example: gke.gcr.io/gke-metrics-agent:1.2.0-gke.0
-func isKubernetesSupportContainerImage(imagename string) bool {
-	supportcontainerimage := false
-	imagebase := imagename
+// imageBasename returns the image base name without version information to
+// match with supportcontainer.yaml configuration.
+func imageBasename(image string) string {
+	imagebase := image
 
 	if strings.Contains(imagebase, "@") {
 		imagebase = strings.Split(imagebase, "@")[0]
@@ -607,22 +604,5 @@ func isKubernetesSupportContainerImage(imagename string) bool {
 	if strings.Contains(imagebase, ":") {
 		imagebase = strings.Split(imagebase, ":")[0]
 	}
-
-	if _, found := explorers.KubernetesSupportContainers[imagebase]; found {
-		supportcontainerimage = true
-	}
-
-	log.WithFields(log.Fields{
-		"imagebase":             imagebase,
-		"supportcontainerimage": supportcontainerimage,
-	}).Debug("Kubernetes support container image")
-
-	return supportcontainerimage
-}
-
-// parseSpec parses containerd spec and returns the information as JSON.
-func parseSpec(any *types.Any) (interface{}, error) {
-	var v spec.Spec
-	json.Unmarshal(any.Value, &v)
-	return v, nil
+	return imagebase
 }
