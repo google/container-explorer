@@ -114,24 +114,30 @@ var listContainers = cli.Command{
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		displayFields := "NAMESPACE\tTYPE\tCONTAINER ID\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT\tPID\tSTATUS"
-		// show updated timestamp
-		if clictx.Bool("updated") {
-			displayFields = fmt.Sprintf("%v\tUPDATED AT", displayFields)
+		output := clictx.GlobalString("output")
+		if output == "table" {
+			//tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
+			//defer tw.Flush()
+
+			displayFields := "NAMESPACE\tTYPE\tCONTAINER ID\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT\tPID\tSTATUS"
+			// show updated timestamp
+			if clictx.Bool("updated") {
+				displayFields = fmt.Sprintf("%v\tUPDATED AT", displayFields)
+			}
+			// show exposed ports
+			if clictx.Bool("ports") {
+				displayFields = fmt.Sprintf("%v\tEXPOSED PORTS", displayFields)
+			}
+			// display docker container name
+			if clictx.GlobalBool("docker-managed") {
+				displayFields = fmt.Sprintf("%v\tNAME", displayFields)
+			}
+			// show labels
+			if !clictx.Bool("no-labels") {
+				displayFields = fmt.Sprintf("%v\tLABELS", displayFields)
+			}
+			fmt.Fprintf(tw, "%v\n", displayFields)
 		}
-		// show exposed ports
-		if clictx.Bool("ports") {
-			displayFields = fmt.Sprintf("%v\tEXPOSED PORTS", displayFields)
-		}
-		// display docker container name
-		if clictx.GlobalBool("docker-managed") {
-			displayFields = fmt.Sprintf("%v\tNAME", displayFields)
-		}
-		// show labels
-		if !clictx.Bool("no-labels") {
-			displayFields = fmt.Sprintf("%v\tLABELS", displayFields)
-		}
-		fmt.Fprintf(tw, "%v\n", displayFields)
 
 		for _, container := range containers {
 			// Show Kubernetes support containers created
@@ -160,33 +166,39 @@ var listContainers = cli.Command{
 				}
 			}
 
-			displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s",
-				container.Namespace,
-				container.ContainerType,
-				container.ID,
-				container.Hostname,
-				container.Image,
-				container.CreatedAt.Format(tsLayout),
-				container.ProcessID,
-				container.Status,
-			)
-			// show updated timestamp value
-			if clictx.Bool("updated") {
-				displayValues = fmt.Sprintf("%v\t%s", displayValues, container.UpdatedAt.Format(tsLayout))
+			switch strings.ToLower(output) {
+			case "json":
+				printAsJSON(container)
+			default:
+				displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s",
+					container.Namespace,
+					container.ContainerType,
+					container.ID,
+					container.Hostname,
+					container.Image,
+					container.CreatedAt.Format(tsLayout),
+					container.ProcessID,
+					container.Status,
+				)
+				// show updated timestamp value
+				if clictx.Bool("updated") {
+					displayValues = fmt.Sprintf("%v\t%s", displayValues, container.UpdatedAt.Format(tsLayout))
+				}
+				// show exposed ports value
+				if clictx.Bool("ports") {
+					displayValues = fmt.Sprintf("%v\t%s", displayValues, arrayToString(container.ExposedPorts))
+				}
+				// show docker container name
+				if clictx.GlobalBool("docker-managed") {
+					displayValues = fmt.Sprintf("%v\t%s", displayValues, strings.Replace(container.Runtime.Name, "/", "", 1))
+				}
+				// show labels values
+				if !clictx.Bool("no-labels") {
+					displayValues = fmt.Sprintf("%v\t%v", displayValues, labelString(container.Labels))
+				}
+				fmt.Fprintf(tw, "%v\n", displayValues)
 			}
-			// show exposed ports value
-			if clictx.Bool("ports") {
-				displayValues = fmt.Sprintf("%v\t%s", displayValues, arrayToString(container.ExposedPorts))
-			}
-			// show docker container name
-			if clictx.GlobalBool("docker-managed") {
-				displayValues = fmt.Sprintf("%v\t%s", displayValues, strings.Replace(container.Runtime.Name, "/", "", 1))
-			}
-			// show labels values
-			if !clictx.Bool("no-labels") {
-				displayValues = fmt.Sprintf("%v\t%v", displayValues, labelString(container.Labels))
-			}
-			fmt.Fprintf(tw, "%v\n", displayValues)
+
 		}
 
 		return nil
@@ -228,15 +240,21 @@ var listImages = cli.Command{
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		displayFields := "NAMESPACE\tNAME\tCREATED AT\tDIGEST\tTYPE"
-		if clictx.Bool("updated") {
-			displayFields = fmt.Sprintf("%v\tUPDATED AT", displayFields)
-		}
-		if !clictx.Bool("no-labels") {
-			displayFields = fmt.Sprintf("%v\tLABELS", displayFields)
+		output := clictx.GlobalString("output")
+
+		// Setting table output
+		if strings.ToLower(output) == "table" {
+			displayFields := "NAMESPACE\tNAME\tCREATED AT\tDIGEST\tTYPE"
+			if clictx.Bool("updated") {
+				displayFields = fmt.Sprintf("%v\tUPDATED AT", displayFields)
+			}
+			if !clictx.Bool("no-labels") {
+				displayFields = fmt.Sprintf("%v\tLABELS", displayFields)
+			}
+
+			fmt.Fprintf(tw, "%v\n", displayFields)
 		}
 
-		fmt.Fprintf(tw, "%v\n", displayFields)
 		for _, image := range images {
 			if !clictx.Bool("show-support-containers") && image.SupportContainerImage {
 				log.WithFields(log.Fields{
@@ -246,20 +264,25 @@ var listImages = cli.Command{
 				continue
 			}
 
-			displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
-				image.Namespace,
-				image.Name,
-				image.CreatedAt.Format(tsLayout),
-				string(image.Target.Digest),
-				image.Target.MediaType,
-			)
-			if clictx.Bool("updated") {
-				displayValues = fmt.Sprintf("%v\t%s", displayValues, image.UpdatedAt.Format(tsLayout))
+			switch strings.ToLower(output) {
+			case "json":
+				printAsJSON(image)
+			default:
+				displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
+					image.Namespace,
+					image.Name,
+					image.CreatedAt.Format(tsLayout),
+					string(image.Target.Digest),
+					image.Target.MediaType,
+				)
+				if clictx.Bool("updated") {
+					displayValues = fmt.Sprintf("%v\t%s", displayValues, image.UpdatedAt.Format(tsLayout))
+				}
+				if !clictx.Bool("no-labels") {
+					displayValues = fmt.Sprintf("%v\t%s", displayValues, labelString(image.Labels))
+				}
+				fmt.Fprintf(tw, "%v\n", displayValues)
 			}
-			if !clictx.Bool("no-labels") {
-				displayValues = fmt.Sprintf("%v\t%s", displayValues, labelString(image.Labels))
-			}
-			fmt.Fprintf(tw, "%v\n", displayValues)
 		}
 		return nil
 	},
@@ -286,16 +309,26 @@ var listContent = cli.Command{
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		fmt.Fprintf(tw, "NAMESPACE\tDIGEST\tSIZE\tCREATED AT\tUPDATED AT\tLABELS\n")
+		output := clictx.GlobalString("output")
+
+		if strings.ToLower(output) == "table" {
+			fmt.Fprintf(tw, "NAMESPACE\tDIGEST\tSIZE\tCREATED AT\tUPDATED AT\tLABELS\n")
+		}
+
 		for _, c := range content {
-			fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%v\t%s\n",
-				c.Namespace,
-				c.Digest,
-				c.Size,
-				c.CreatedAt.Format(tsLayout),
-				c.UpdatedAt.Format(tsLayout),
-				labelString(c.Labels),
-			)
+			switch strings.ToLower(output) {
+			case "json":
+				printAsJSON(c)
+			default:
+				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%v\t%s\n",
+					c.Namespace,
+					c.Digest,
+					c.Size,
+					c.CreatedAt.Format(tsLayout),
+					c.UpdatedAt.Format(tsLayout),
+					labelString(c.Labels),
+				)
+			}
 		}
 
 		return nil
@@ -333,32 +366,45 @@ var listSnapshots = cli.Command{
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		displayFields := "NAMESPACE\tSNAPSHOTTER\tCREATED AT\tUPDATED AT\tKIND\tNAME\tPARENT\tLAYER PATH"
-		if !clictx.Bool("no-labels") {
-			displayFields = fmt.Sprintf("%s\tLABELS", displayFields)
+		output := clictx.GlobalString("output")
+
+		// Setting table output header
+		if strings.ToLower(output) == "table" {
+			displayFields := "NAMESPACE\tSNAPSHOTTER\tCREATED AT\tUPDATED AT\tKIND\tNAME\tPARENT\tLAYER PATH"
+			if !clictx.Bool("no-labels") {
+				displayFields = fmt.Sprintf("%s\tLABELS", displayFields)
+			}
+			fmt.Fprintf(tw, "%v\n", displayFields)
 		}
-		fmt.Fprintf(tw, "%v\n", displayFields)
 
 		for _, s := range ss {
-			ssfilepath := s.OverlayPath
-			if clictx.Bool("full-overlay-path") {
-				ssfilepath = filepath.Join(exp.SnapshotRoot(s.Snapshotter), ssfilepath)
-			}
-			displayValue := fmt.Sprintf("%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v",
-				s.Namespace,
-				s.Snapshotter,
-				s.CreatedAt.Format(tsLayout),
-				s.UpdatedAt.Format(tsLayout),
-				s.Kind,
-				s.Key,
-				s.Parent,
-				ssfilepath,
-			)
+			ssfilepath := filepath.Join(exp.SnapshotRoot(s.Snapshotter), s.OverlayPath)
 
-			if !clictx.Bool("no-labels") {
-				displayValue = fmt.Sprintf("%v\t%v", displayValue, labelString(s.Labels))
+			switch strings.ToLower(output) {
+			case "json":
+				s.OverlayPath = ssfilepath
+				printAsJSON(s)
+			default:
+				if clictx.Bool("full-overlay-path") {
+					s.OverlayPath = ssfilepath
+				}
+
+				displayValue := fmt.Sprintf("%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v",
+					s.Namespace,
+					s.Snapshotter,
+					s.CreatedAt.Format(tsLayout),
+					s.UpdatedAt.Format(tsLayout),
+					s.Kind,
+					s.Key,
+					s.Parent,
+					s.OverlayPath,
+				)
+
+				if !clictx.Bool("no-labels") {
+					displayValue = fmt.Sprintf("%v\t%v", displayValue, labelString(s.Labels))
+				}
+				fmt.Fprintf(tw, "%v\n", displayValue)
 			}
-			fmt.Fprintf(tw, "%v\n", displayValue)
 		}
 
 		return nil

@@ -101,6 +101,11 @@ func main() {
 			Name:  "support-container-data",
 			Usage: "a yaml file containing information about support containers",
 		},
+		cli.StringFlag{
+			Name:  "output",
+			Usage: "output format in json, table. Default is table",
+			Value: "table",
+		},
 	}
 
 	app.Commands = []cli.Command{

@@ -76,7 +76,6 @@ func NewExplorer(imageroot string, root string, manifest string, snapshot string
 func (e *explorer) SnapshotRoot(snapshotter string) string {
 	dirs, _ := filepath.Glob(filepath.Join(e.root, "*"))
 	for _, dir := range dirs {
-		fmt.Println(dir)
 		if strings.Contains(strings.ToLower(dir), strings.ToLower(snapshotter)) {
 			return dir
 		}
