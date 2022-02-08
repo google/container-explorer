@@ -16,7 +16,7 @@ images:
   - gke.gcr.io/k8s-dns-sidecar
   - gke.gcr.io/kube-proxy-amd64
   - gke.gcr.io/prometheus-to-sd
-  #- gke.gcr.io/proxy-agent
+  - gke.gcr.io/proxy-agent
   - k8s.gcr.io/metrics-server/metrics-server
   - k8s.gcr.io/pause
   - gcr.io/gke-release-staging/addon-resizer
