@@ -12,6 +12,10 @@ Container Explorer provides the following functionalities:
 - Mounting containers
 - Support JSON output
 
+You can build the Container Explorer using the instruction at [Build Container Explorer](#build-container-explorer).
+
+If you don't want to build, the binaries are available on https://github.com/google/container-explorer/releases.
+
 ## Usage
 
 The figure below shows the output of the container-explorer --help command.
@@ -204,7 +208,7 @@ The `supportcontainer.yaml` contains the commonly known hostname, image, and lab
 
 When `--support-container-data` is used, the `list` and `mount-all` commands automatically ignores the known support containers where applicable. You can use `--show-support-containers` and `--mount-support-containers` to display and mount the support containers.
 
-# Compiling Container Explorer
+# Build Container Explorer
 
 Follow the steps below to compile the Container Explorer.
 
