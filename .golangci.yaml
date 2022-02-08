@@ -11,5 +11,7 @@ linters:
     - vet
     - unused
     - misspell
+    - whitespace
+    - gosec
   disable:
     - errcheck
