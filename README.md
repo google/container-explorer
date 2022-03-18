@@ -212,7 +212,7 @@ When `--support-container-data` is used, the `list` and `mount-all` commands aut
 
 Follow the steps below to compile the Container Explorer.
 
-1. Verify Golang version is 1.7 or above
+1. Verify Golang version is 1.17 or above
 
 ```bash
 go version
