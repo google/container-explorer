@@ -87,3 +87,12 @@ func printAsJSON(v interface{}) {
 
 	fmt.Println(string(b))
 }
+
+func printAsJSONLine(v interface{}) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		log.Error("error marshalling to json_line", err)
+		return
+	}
+	fmt.Println(string(b))
+}

@@ -111,10 +111,15 @@ var listContainers = cli.Command{
 			log.Fatal(err)
 		}
 
+		output := clictx.GlobalString("output")
+		if strings.ToLower(output) == "json" {
+			printAsJSON(containers)
+			return nil
+		}
+
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
-		output := clictx.GlobalString("output")
 		if output == "table" {
 			//tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 			//defer tw.Flush()
@@ -167,8 +172,8 @@ var listContainers = cli.Command{
 			}
 
 			switch strings.ToLower(output) {
-			case "json":
-				printAsJSON(container)
+			case "json_line":
+				printAsJSONLine(container)
 			default:
 				displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s",
 					container.Namespace,
@@ -237,10 +242,14 @@ var listImages = cli.Command{
 			log.Fatal(err)
 		}
 
+		output := clictx.GlobalString("output")
+		if strings.ToLower(output) == "json" {
+			printAsJSON(images)
+			return nil
+		}
+
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
-
-		output := clictx.GlobalString("output")
 
 		// Setting table output
 		if strings.ToLower(output) == "table" {
@@ -265,8 +274,8 @@ var listImages = cli.Command{
 			}
 
 			switch strings.ToLower(output) {
-			case "json":
-				printAsJSON(image)
+			case "json_line":
+				printAsJSONLine(image)
 			default:
 				displayValues := fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
 					image.Namespace,
@@ -306,10 +315,14 @@ var listContent = cli.Command{
 			log.Fatal(err)
 		}
 
+		output := clictx.GlobalString("output")
+		if strings.ToLower(output) == "json" {
+			printAsJSON(content)
+			return nil
+		}
+
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
-
-		output := clictx.GlobalString("output")
 
 		if strings.ToLower(output) == "table" {
 			fmt.Fprintf(tw, "NAMESPACE\tDIGEST\tSIZE\tCREATED AT\tUPDATED AT\tLABELS\n")
@@ -317,8 +330,8 @@ var listContent = cli.Command{
 
 		for _, c := range content {
 			switch strings.ToLower(output) {
-			case "json":
-				printAsJSON(c)
+			case "json_line":
+				printAsJSONLine(c)
 			default:
 				fmt.Fprintf(tw, "%s\t%s\t%v\t%v\t%v\t%s\n",
 					c.Namespace,
@@ -363,10 +376,14 @@ var listSnapshots = cli.Command{
 			log.Fatal(err)
 		}
 
+		output := clictx.GlobalString("output")
+		if strings.ToLower(output) == "json" {
+			printAsJSON(ss)
+			return nil
+		}
+
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
-
-		output := clictx.GlobalString("output")
 
 		// Setting table output header
 		if strings.ToLower(output) == "table" {
@@ -381,9 +398,9 @@ var listSnapshots = cli.Command{
 			ssfilepath := filepath.Join(exp.SnapshotRoot(s.Snapshotter), s.OverlayPath)
 
 			switch strings.ToLower(output) {
-			case "json":
+			case "json_line":
 				s.OverlayPath = ssfilepath
-				printAsJSON(s)
+				printAsJSONLine(s)
 			default:
 				if clictx.Bool("full-overlay-path") {
 					s.OverlayPath = ssfilepath
@@ -428,6 +445,12 @@ var listTasks = cli.Command{
 			log.Fatal(err)
 		}
 
+		output := clictx.GlobalString("output")
+		if strings.ToLower(output) == "json" {
+			printAsJSON(tasks)
+			return nil
+		}
+
 		tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
 		defer tw.Flush()
 
@@ -435,14 +458,19 @@ var listTasks = cli.Command{
 		fmt.Fprintf(tw, "%v\n", displayFields)
 
 		for _, t := range tasks {
-			displayValues := fmt.Sprintf("%v\t%v\t%v\t%v\t%v",
-				t.Namespace,
-				t.Name,
-				t.ContainerType,
-				t.PID,
-				t.Status,
-			)
-			fmt.Fprintf(tw, "%v\n", displayValues)
+			switch strings.ToLower(output) {
+			case "json_line":
+				printAsJSONLine(t)
+			default:
+				displayValues := fmt.Sprintf("%v\t%v\t%v\t%v\t%v",
+					t.Namespace,
+					t.Name,
+					t.ContainerType,
+					t.PID,
+					t.Status,
+				)
+				fmt.Fprintf(tw, "%v\n", displayValues)
+			}
 		}
 		return nil
 	},
