@@ -1,11 +1,15 @@
+linters-settings:
+  misspell:
+    locale: US
 linters:
+  disable-all: true
   enable:
-    - structcheck
-    - varcheck
     - staticcheck
     - unconvert
     - gofmt
     - goimports
+    - gosimple
+    - govet
     - revive
     - ineffassign
     - vet
@@ -13,5 +17,8 @@ linters:
     - misspell
     - whitespace
     - gosec
-  disable:
-    - errcheck
+run:
+  timeout: 5m
+  go: '1.18'
+  skip-dirs:
+    - script
