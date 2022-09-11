@@ -54,7 +54,7 @@ func main() {
 
 		// Removing the default containerd-root value
 		//
-		// A bug was discovered when analysing docker managed containers and
+		// A bug was discovered when analyzing docker managed containers and
 		// the `containerd-root` default value was set.
 		//
 		// The bug occurs only when the analysis host had containerd running
@@ -105,6 +105,10 @@ func main() {
 			Name:  "output",
 			Usage: "output format in json, table. Default is table",
 			Value: "table",
+		},
+		cli.StringFlag{
+			Name:  "output-file, o",
+			Usage: "output file to save the content",
 		},
 	}
 

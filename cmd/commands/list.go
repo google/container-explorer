@@ -17,7 +17,9 @@ limitations under the License.
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,21 +101,36 @@ var listContainers = cli.Command{
 		},
 	},
 	Action: func(clictx *cli.Context) error {
+		output := clictx.GlobalString("output")
+		outputfile := clictx.GlobalString("output-file")
 
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
-			log.Fatal(err)
+			log.WithField("message", err).Error("setting environment")
+			if output == "json" && outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 		defer cancel()
 
 		containers, err := exp.ListContainers(ctx)
 		if err != nil {
-			log.Fatal(err)
+			log.WithField("message", err).Error("listing containers")
+			if output == "json" && outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 
-		output := clictx.GlobalString("output")
 		if strings.ToLower(output) == "json" {
-			printAsJSON(containers)
+			if outputfile != "" {
+				writeOutputFile(containers, outputfile)
+			} else {
+				printAsJSON(containers)
+			}
 			return nil
 		}
 
@@ -121,9 +138,6 @@ var listContainers = cli.Command{
 		defer tw.Flush()
 
 		if output == "table" {
-			//tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
-			//defer tw.Flush()
-
 			displayFields := "NAMESPACE\tTYPE\tCONTAINER ID\tCONTAINER HOSTNAME\tIMAGE\tCREATED AT\tPID\tSTATUS"
 			// show updated timestamp
 			if clictx.Bool("updated") {
@@ -230,21 +244,36 @@ var listImages = cli.Command{
 		},
 	},
 	Action: func(clictx *cli.Context) error {
+		output := clictx.GlobalString("output")
+		outputfile := clictx.GlobalString("output-file")
 
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
-			log.Fatal(err)
+			log.WithField("message", err).Error("setting environment")
+			if output == "json" && outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 		defer cancel()
 
 		images, err := exp.ListImages(ctx)
 		if err != nil {
-			log.Fatal(err)
+			log.WithField("message", err).Error("listing images")
+			if output == "json" && outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 
-		output := clictx.GlobalString("output")
 		if strings.ToLower(output) == "json" {
-			printAsJSON(images)
+			if outputfile != "" {
+				writeOutputFile(images, outputfile)
+			} else {
+				printAsJSON(images)
+			}
 			return nil
 		}
 
@@ -303,21 +332,36 @@ var listContent = cli.Command{
 	Usage:       "list content for all namespaces",
 	Description: "list content for all namespaces",
 	Action: func(clictx *cli.Context) error {
+		output := clictx.GlobalString("output")
+		outputfile := clictx.GlobalString("outputfile")
 
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
-			log.Fatal(err)
+			log.WithField("message", err).Error("setting environment")
+			if output == "json" && outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 		defer cancel()
 
 		content, err := exp.ListContent(ctx)
 		if err != nil {
-			log.Fatal(err)
+			log.WithField("message", err).Error("listing content")
+			if output == "json" && outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 
-		output := clictx.GlobalString("output")
 		if strings.ToLower(output) == "json" {
-			printAsJSON(content)
+			if outputfile != "" {
+				writeOutputFile(content, outputfile)
+			} else {
+				printAsJSON(content)
+			}
 			return nil
 		}
 
@@ -364,21 +408,38 @@ var listSnapshots = cli.Command{
 		},
 	},
 	Action: func(clictx *cli.Context) error {
+		output := clictx.GlobalString("output")
+		outputfile := clictx.GlobalString("outputfile")
 
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
-			log.Fatal(err)
+			//log.Fatal(err)
+			log.WithField("message", err).Error("setting environment")
+			if output == "json" && outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 		defer cancel()
 
 		ss, err := exp.ListSnapshots(ctx)
 		if err != nil {
-			log.Fatal(err)
+			//log.Fatal(err)
+			log.WithField("message", err).Error("listing snapshot")
+			if output == "json" && outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 
-		output := clictx.GlobalString("output")
 		if strings.ToLower(output) == "json" {
-			printAsJSON(ss)
+			if outputfile != "" {
+				writeOutputFile(ss, outputfile)
+			} else {
+				printAsJSON(ss)
+			}
 			return nil
 		}
 
@@ -434,18 +495,30 @@ var listTasks = cli.Command{
 	Usage:       "list tasks",
 	Description: "list container tasks",
 	Action: func(clictx *cli.Context) error {
+		output := clictx.GlobalString("output")
+		outputfile := clictx.GlobalString("outputfile")
+
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
-			log.Fatal(err)
+			log.WithField("message", err).Error("setting environment")
+			if outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 		defer cancel()
 
 		tasks, err := exp.ListTasks(ctx)
 		if err != nil {
-			log.Fatal(err)
+			log.WithField("message", err).Error("listing task")
+			if outputfile != "" {
+				data := []string{}
+				writeOutputFile(data, outputfile)
+			}
+			return nil
 		}
 
-		output := clictx.GlobalString("output")
 		if strings.ToLower(output) == "json" {
 			printAsJSON(tasks)
 			return nil
@@ -499,4 +572,10 @@ func arrayToString(array []string) string {
 	}
 
 	return result
+}
+
+// writeOutputFile writes JSON data to specified file.
+func writeOutputFile(v interface{}, outputfile string) {
+	data, _ := json.Marshal(v)
+	ioutil.WriteFile(outputfile, data, 0600)
 }

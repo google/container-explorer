@@ -81,7 +81,7 @@ var infoContainer = cli.Command{
 func printAsJSON(v interface{}) {
 	b, err := json.MarshalIndent(v, "", " ")
 	if err != nil {
-		log.Error("error marshalling to JSON", err)
+		log.Error("error marshaling to JSON", err)
 		return
 	}
 
@@ -91,7 +91,7 @@ func printAsJSON(v interface{}) {
 func printAsJSONLine(v interface{}) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		log.Error("error marshalling to json_line", err)
+		log.Error("error marshaling to json_line", err)
 		return
 	}
 	fmt.Println(string(b))
