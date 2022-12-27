@@ -55,12 +55,12 @@ type ImageRepository struct {
 }
 
 type explorer struct {
-	root          string // docker root directory
-	contaierdroot string
-	manifest      string
-	snapshot      string
-	mdb           *bolt.DB                    // manifest database file
-	sc            *explorers.SupportContainer // support container object
+	root           string // docker root directory
+	containerdroot string
+	manifest       string
+	snapshot       string
+	mdb            *bolt.DB                    // manifest database file
+	sc             *explorers.SupportContainer // support container object
 }
 
 // NewExplorer returns a ContainerExplorer interface to explorer docker managed
@@ -87,12 +87,12 @@ func NewExplorer(root string, containerdroot string, manifest string, snapshot s
 	}).Debug("new docker explorer")
 
 	return &explorer{
-		root:          root,
-		contaierdroot: containerdroot,
-		manifest:      manifest,
-		snapshot:      snapshot,
-		mdb:           db,
-		sc:            sc,
+		root:           root,
+		containerdroot: containerdroot,
+		manifest:       manifest,
+		snapshot:       snapshot,
+		mdb:            db,
+		sc:             sc,
 	}, nil
 }
 

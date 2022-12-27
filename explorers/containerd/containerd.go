@@ -336,7 +336,7 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 	// If a container is deleted then cgroup may not exist for the container
 	if !explorers.PathExists(cgroupspath, false) {
 		log.WithFields(log.Fields{
-			"contianerid": ctr.ID,
+			"containerid": ctr.ID,
 			"cgroupspath": cgroupspath,
 		}).Debug("container cgroup path does not exit")
 
