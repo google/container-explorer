@@ -223,6 +223,27 @@ automatically ignores the known support containers where applicable. You can use
 `--show-support-containers` and `--mount-support-containers` to display and 
 mount the support containers.
 
+# Installing Container Explorer
+
+Follow the steps below to install a pre-compiled Container Explorer on Linux system.
+
+1. Download setup script `setup.sh` which is located at `https://github.com/google/container-explorer/blob/main/script/setup.sh`
+   ```bash
+   wget https://raw.githubusercontent.com/google/container-explorer/main/script/setup.sh
+   ```
+
+2. Run the script with `root` privileges.
+   ```bash
+   sudo bash setup.sh install
+   ```
+   Container Explorer files will be created at `/opt/container-explorer`
+   
+3. Run Container Explorer
+   ```
+   /opt/container-explorer/bin/ce -h
+   ```
+   **Note**: `supportcontainer.yaml` is located at `/opt/container-explorer/etc/supportcontainer.yaml`
+
 # Build Container Explorer
 
 Follow the steps below to compile the Container Explorer.
