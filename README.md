@@ -225,7 +225,7 @@ mount the support containers.
 
 # Installing Container Explorer
 
-Follow the steps below to install a pre-compiled Container Explorer on Linux system.
+Follow the steps below to install a pre-compiled Container Explorer on Linux systems.
 
 1. Download setup script `setup.sh` which is located at `https://github.com/google/container-explorer/blob/main/script/setup.sh`
    ```bash
