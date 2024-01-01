@@ -30,6 +30,10 @@ var MountAllCommand = cli.Command{
 	Description: "mount all containers to subdirectories with the specified mount point",
 	ArgsUsage:   "[flag] MOUNT_POINT",
 	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "filter",
+			Usage: "comma separated label filter using key=value pair",
+		},
 		cli.BoolFlag{
 			Name:  "mount-support-containers",
 			Usage: "mount Kubernetes supporting containers",
@@ -46,6 +50,7 @@ var MountAllCommand = cli.Command{
 		}
 
 		mountpoint := clictx.Args().First()
+		filter := clictx.String("filter")
 
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
@@ -53,7 +58,7 @@ var MountAllCommand = cli.Command{
 		}
 		defer cancel()
 
-		if err := exp.MountAllContainers(ctx, mountpoint, !clictx.Bool("mount-support-containers")); err != nil {
+		if err := exp.MountAllContainers(ctx, mountpoint, filter, !clictx.Bool("mount-support-containers")); err != nil {
 			return err
 		}
 		// default

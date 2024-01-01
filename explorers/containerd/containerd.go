@@ -28,7 +28,6 @@ import (
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/namespaces"
-	"github.com/gogo/protobuf/types"
 	"github.com/google/container-explorer/explorers"
 
 	spec "github.com/opencontainers/runtime-spec/specs-go"
@@ -409,8 +408,8 @@ func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec b
 		return nil, err
 	}
 
-	if container.Spec != nil && container.Spec.Value != nil {
-		v, err := parseSpec(container.Spec)
+	if container.Spec != nil && container.Spec.GetValue() != nil {
+		v, err := parseSpec(container.Spec.GetValue())
 		if err != nil {
 			return nil, err
 		}
@@ -500,11 +499,13 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 }
 
 // MountAllContainers mounts all the containers
-func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, skipsupportcontainers bool) error {
+func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error {
 	ctrs, err := e.ListContainers(ctx)
 	if err != nil {
 		return err
 	}
+
+	filters := strings.Split(filter, ",")
 
 	for _, ctr := range ctrs {
 		// Skip Kubernetes suppot containers
@@ -514,6 +515,32 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, sk
 				"containerid": ctr.ID,
 			}).Info("skip mounting Kubernetes containers")
 
+			continue
+		}
+
+		// Only mount containers matching the filter.
+		mount := true
+		for _, f := range filters {
+			if !strings.Contains(f, "=") {
+				continue
+			}
+
+			key := strings.Split(f, "=")[0]
+			value := strings.Split(f, "=")[1]
+
+			labelValue, ok := ctr.Labels[key]
+			if !ok {
+				mount = false
+				break
+			}
+
+			if labelValue != value {
+				mount = false
+				break
+			}
+		}
+
+		if !mount {
 			continue
 		}
 
@@ -559,9 +586,9 @@ func convertToContainerExplorerContainer(ns string, ctr containers.Container) ex
 	}
 
 	// Get hostname from runtime fields
-	if hostname == "" && ctr.Spec != nil && ctr.Spec.Value != nil {
+	if hostname == "" && ctr.Spec != nil && ctr.Spec.GetValue() != nil {
 		var v spec.Spec
-		json.Unmarshal(ctr.Spec.Value, &v)
+		json.Unmarshal(ctr.Spec.GetValue(), &v)
 
 		if v.Hostname != "" {
 			hostname = v.Hostname
@@ -585,9 +612,9 @@ func convertToContainerExplorerContainer(ns string, ctr containers.Container) ex
 }
 
 // parseSpec parses containerd spec and returns the information as JSON.
-func parseSpec(any *types.Any) (interface{}, error) {
+func parseSpec(data []byte) (interface{}, error) {
 	var v spec.Spec
-	json.Unmarshal(any.Value, &v)
+	json.Unmarshal(data, &v)
 	return v, nil
 }
 

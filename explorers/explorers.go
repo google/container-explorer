@@ -58,7 +58,7 @@ type ContainerExplorer interface {
 	MountContainer(ctx context.Context, containerid string, mountpoint string) error
 
 	// MountAllContainer mounts all containers to the specfied path
-	MountAllContainers(ctx context.Context, mountpoint string, skipsupportcontainers bool) error
+	MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error
 
 	// Close releases the internal resources
 	Close() error

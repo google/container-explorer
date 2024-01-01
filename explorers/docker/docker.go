@@ -375,7 +375,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 }
 
 // MountAllContainers mounts all the containers
-func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, skipsupportcontainers bool) error {
+func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error {
 	containersdir := filepath.Join(e.root, containersDirName)
 	log.WithField("containersdir", containersdir).Debug("docker containers directory")
 
@@ -386,6 +386,8 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, sk
 	if containerids == nil {
 		return fmt.Errorf("no container ID returned")
 	}
+
+	filters := strings.Split(filter, ",")
 
 	for _, containerid := range containerids {
 		cecontainer, err := e.GetCEContainer(ctx, containerid)
@@ -400,6 +402,32 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, sk
 				"namespace":   cecontainer.Namespace,
 				"containerid": cecontainer.ID,
 			}).Info("skip mounting Kubernetes support container")
+			continue
+		}
+
+		// Only mount containers matching the filter.
+		mount := true
+		for _, f := range filters {
+			if !strings.Contains(f, "=") {
+				continue
+			}
+
+			key := strings.Split(f, "=")[0]
+			value := strings.Split(f, "=")[1]
+
+			labelValue, ok := cecontainer.Labels[key]
+			if !ok {
+				mount = false
+				break
+			}
+
+			if labelValue != value {
+				mount = false
+				break
+			}
+		}
+
+		if !mount {
 			continue
 		}
 

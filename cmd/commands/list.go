@@ -79,6 +79,10 @@ var listContainers = cli.Command{
 	Usage:       "list containers for all namespaces",
 	Description: "list containers for all namespaces",
 	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "filter",
+			Usage: "comma separated label filter using key=value pair",
+		},
 		cli.BoolFlag{
 			Name:  "show-support-containers",
 			Usage: "show supporting containers created by Kubernetes",
@@ -103,6 +107,7 @@ var listContainers = cli.Command{
 	Action: func(clictx *cli.Context) error {
 		output := clictx.GlobalString("output")
 		outputfile := clictx.GlobalString("output-file")
+		filters := clictx.String("filter")
 
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
@@ -123,6 +128,38 @@ var listContainers = cli.Command{
 				writeOutputFile(data, outputfile)
 			}
 			return nil
+		}
+
+		// Filter containers
+		filteredContainers := containers[:0]
+		if filters != "" {
+			labelFilters := strings.Split(filters, ",")
+
+			for _, container := range containers {
+				include := true
+
+				for _, f := range labelFilters {
+					if !strings.Contains(f, "=") {
+						continue
+					}
+					key := strings.Split(f, "=")[0]
+					value := strings.Split(f, "=")[1]
+					labelValue, ok := container.Labels[key]
+					if !ok {
+						include = false
+						break
+					}
+
+					if labelValue != value {
+						include = false
+						break
+					}
+				}
+				if include {
+					filteredContainers = append(filteredContainers, container)
+				}
+			}
+			containers = filteredContainers
 		}
 
 		if strings.ToLower(output) == "json" {

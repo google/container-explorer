@@ -45,8 +45,8 @@ type snapshotStore struct {
 //
 // The meta.db file contains the following information:
 //   - Container reference to container snapshot: meta.db/v1/<namespace>/containers/<container id>
-//      - shapshotter
-//      - snapshotKey
+//   - snapshotter
+//   - snapshotKey
 //   - Snapshot information in meta.db/v1/<namespace>/snapshots/<snapshotter>/<snapshot key>
 //
 // The metadata.db file contains additional information about a snapshot.
