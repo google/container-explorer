@@ -19,13 +19,13 @@ You can build the Container Explorer using the instruction at
 [Build Container Explorer](#build-container-explorer).
 
 If you don't want to build, the binaries are available on
-https://github.com/google/container-explorer/releases.
+<https://github.com/google/container-explorer/releases>.
 
 ## Usage
 
 The figure below shows the output of the container-explorer --help command.
 
-```console
+```text
 NAME:
    container-explorer - A standalone utility to explore container details
  
@@ -67,85 +67,84 @@ GLOBAL OPTIONS:
 
 Container Explorer helps you explore containers on a mounted disk image. Let's
 assume we have a clone of the Google Kubernetes Engine (GKE) node attached on a
-forensic VM as `/dev/sdb`. 
-
+forensic VM as `/dev/sdb`.
 
 1. List the disk partition table.
 
-```bash
-sudo fdisk -l /dev/sdb
-```
+   ```shell
+   sudo fdisk -l /dev/sdb
+   ```
 
-The output of the `fdisk` command.
+   The output of the `fdisk` command.
 
-```console
-Disk /dev/sdb: 10 GiB, 10737418240 bytes, 20971520 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: gpt
-Disk identifier: 7C818738-EDF0-B246-960D-0E7EE8655B06
- 
-Device     Start      End  Sectors  Size Type
-/dev/sdb1  8704000 20971486 12267487  5.8G Linux filesystem
-/dev/sdb2    20480    53247    32768   16M ChromeOS kernel
-/dev/sdb3  4509696  8703999  4194304    2G ChromeOS root fs
-/dev/sdb4    53248    86015    32768   16M ChromeOS kernel
-/dev/sdb5   315392  4509695  4194304    2G ChromeOS root fs
-/dev/sdb6    16448    16448        1  512B ChromeOS kernel
-/dev/sdb7    16449    16449        1  512B ChromeOS root fs
-/dev/sdb8    86016   118783    32768   16M Linux filesystem
-/dev/sdb9    16450    16450        1  512B ChromeOS reserved
-/dev/sdb10   16451    16451        1  512B ChromeOS reserved
-/dev/sdb11      64    16447    16384    8M BIOS boot
-/dev/sdb12  249856   315391    65536   32M EFI System
-```
+   ```text
+   Disk /dev/sdb: 10 GiB, 10737418240 bytes, 20971520 sectors
+   Units: sectors of 1 * 512 = 512 bytes
+   Sector size (logical/physical): 512 bytes / 512 bytes
+   I/O size (minimum/optimal): 512 bytes / 512 bytes
+   Disklabel type: gpt
+   Disk identifier: 7C818738-EDF0-B246-960D-0E7EE8655B06
+   
+   Device     Start      End  Sectors  Size Type
+   /dev/sdb1  8704000 20971486 12267487  5.8G Linux filesystem
+   /dev/sdb2    20480    53247    32768   16M ChromeOS kernel
+   /dev/sdb3  4509696  8703999  4194304    2G ChromeOS root fs
+   /dev/sdb4    53248    86015    32768   16M ChromeOS kernel
+   /dev/sdb5   315392  4509695  4194304    2G ChromeOS root fs
+   /dev/sdb6    16448    16448        1  512B ChromeOS kernel
+   /dev/sdb7    16449    16449        1  512B ChromeOS root fs
+   /dev/sdb8    86016   118783    32768   16M Linux filesystem
+   /dev/sdb9    16450    16450        1  512B ChromeOS reserved
+   /dev/sdb10   16451    16451        1  512B ChromeOS reserved
+   /dev/sdb11      64    16447    16384    8M BIOS boot
+   /dev/sdb12  249856   315391    65536   32M EFI System
+   ```
 
 2. Mount the `/dev/sdb1` as read-only disk on mount point `/mnt/case`.
 
-```bash
-sudo mount -o ro,noload,noexec /dev/sdb1 /mnt/case
-```
+   ```shell
+   sudo mount -o ro,noload,noexec /dev/sdb1 /mnt/case
+   ```
 
 3. Use `container-explorer` to explore the mounted image.
 
-```bash
-sudo ce -i /mnt/case --support-container-data supportcontainer.yaml list containers
-```
+   ```shell
+   sudo ce -i /mnt/case --support-container-data supportcontainer.yaml list containers
+   ```
 
 4. Mount an individual container or all containers
 
-  - Mount a container to mount point `/mnt/container`.
+   Mount a container to mount point `/mnt/container`.
 
-```bash
-sudo ce -i /mnt/case –support-container-data supportcontainer.yaml -n k8s.io mount f3c910583a81e7441e2cbd209b72afa4740e676ff8d82f2c74fdc5c78e179c10 /container
-```
+   ```shell
+   sudo ce -i /mnt/case –support-container-data supportcontainer.yaml -n k8s.io mount f3c910583a81e7441e2cbd209b72afa4740e676ff8d82f2c74fdc5c78e179c10 /container
+   ```
 
-  - Mount all containers to mount point `/mnt/container`. Mounting all
-containers will create sub-directories using container ID as directory name.
+   Mount all containers to mount point `/mnt/container`. Mounting all 
+   containers will create sub-directories using container ID as directory name.
 
-```bash
-sudo ce -i /mnt/case –support-container-data supportcontainer.yaml mount-all /mnt/container
-```
+   ```shell
+   sudo ce -i /mnt/case –support-container-data supportcontainer.yaml mount-all /mnt/container
+   ```
 
 5. List the mounted containers within `/mnt/container/`.
 
-```bash
-sudo ls -l /mnt/container
-```
+   ```shell
+   sudo ls -l /mnt/container
+   ```
 
-The output of the command.
+   The output of the command.
 
-```console
-drwxr-xr-x 1 root root 4096 Feb  5 08:55 3544209cfda893703458d7d0a6a65970bfb46e9be6a60faa1e4e9d0adae11b55
-drwxr-xr-x 1 root root 4096 Feb  5 08:54 3646fe81507be0510e9191d7e34adbeb751e7ecd86f7e1657289968828c5c8e3
-drwxr-xr-x 1 root root 4096 Feb  5 08:54 68a04caa81f9a4265e53a83b50874faca5a7c8400ee0c064d40d81cde6f03b86
-drwxr-xr-x 1 root root 4096 Feb  5 09:14 6f68aeae9c0288c2412f793d3a7b85efac189786ed8da2bdce9f88d39827fb80
-drwxr-xr-x 1 root root 4096 Feb  5 08:55 7227972ec83761790a65c137239c48817a26b8ad85be74b1ecf751656a2a61be
-drwxr-xr-x 1 root root 4096 Feb  5 09:13 cc9bc4f6c6b35b8a3616d8b4586741d8dc148c62b394d276dfab7572ee5aa542
-drwxr-xr-x 1 root root 4096 Feb  5 09:13 d3d1ff8c4ef39acbdf0a44bee6c326786309e408942d6a2d42cbaa1661bac77f
-drwxr-xr-x 1 root root 4096 Feb  5 08:54 f3c910583a81e7441e2cbd209b72afa4740e676ff8d82f2c74fdc5c78e179c10
-```
+   ```text
+   drwxr-xr-x 1 root root 4096 Feb  5 08:55 3544209cfda893703458d7d0a6a65970bfb46e9be6a60faa1e4e9d0adae11b55
+   drwxr-xr-x 1 root root 4096 Feb  5 08:54 3646fe81507be0510e9191d7e34adbeb751e7ecd86f7e1657289968828c5c8e3
+   drwxr-xr-x 1 root root 4096 Feb  5 08:54 68a04caa81f9a4265e53a83b50874faca5a7c8400ee0c064d40d81cde6f03b86
+   drwxr-xr-x 1 root root 4096 Feb  5 09:14 6f68aeae9c0288c2412f793d3a7b85efac189786ed8da2bdce9f88d39827fb80
+   drwxr-xr-x 1 root root 4096 Feb  5 08:55 7227972ec83761790a65c137239c48817a26b8ad85be74b1ecf751656a2a61be
+   drwxr-xr-x 1 root root 4096 Feb  5 09:13 cc9bc4f6c6b35b8a3616d8b4586741d8dc148c62b394d276dfab7572ee5aa542
+   drwxr-xr-x 1 root root 4096 Feb  5 09:13 d3d1ff8c4ef39acbdf0a44bee6c326786309e408942d6a2d42cbaa1661bac77f
+   drwxr-xr-x 1 root root 4096 Feb  5 08:54 f3c910583a81e7441e2cbd209b72afa4740e676ff8d82f2c74fdc5c78e179c10
+   ```
 
 6. Use your favorite forensic tool to process mounted containers.
 
@@ -155,47 +154,47 @@ Let's assume you have a GKE node disk image as `clone-gke-wp-cluster-default-poo
 
 1. List the partition table.
 
-```bash
-sudo fdisk -l clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img
-```
+   ```shell
+   sudo fdisk -l clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img
+   ```
 
-The output of the `fdisk -l` command.
+   The output of the `fdisk -l` command.
 
-```console
-Disk clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img: 10 GiB, 10737418240 bytes, 20971520 sectors
-Units: sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disklabel type: gpt
-Disk identifier: 7C818738-EDF0-B246-960D-0E7EE8655B06
- 
-Device                                                  Start      End  Sectors  Size Type
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img1  8704000 20971486 12267487  5.8G Linux filesystem
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img2    20480    53247    32768   16M ChromeOS kernel
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img3  4509696  8703999  4194304    2G ChromeOS root fs
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img4    53248    86015    32768   16M ChromeOS kernel
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img5   315392  4509695  4194304    2G ChromeOS root fs
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img6    16448    16448        1  512B ChromeOS kernel
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img7    16449    16449        1  512B ChromeOS root fs
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img8    86016   118783    32768   16M Linux filesystem
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img9    16450    16450        1  512B ChromeOS reserved
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img10   16451    16451        1  512B ChromeOS reserved
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img11      64    16447    16384    8M BIOS boot
-clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img12  249856   315391    65536   32M EFI System
-```
+   ```text
+   Disk clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img: 10 GiB, 10737418240 bytes, 20971520 sectors
+   Units: sectors of 1 * 512 = 512 bytes
+   Sector size (logical/physical): 512 bytes / 512 bytes
+   I/O size (minimum/optimal): 512 bytes / 512 bytes
+   Disklabel type: gpt
+   Disk identifier: 7C818738-EDF0-B246-960D-0E7EE8655B06
+   
+   Device                                                  Start      End  Sectors  Size Type
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img1  8704000 20971486 12267487  5.8G Linux filesystem
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img2    20480    53247    32768   16M ChromeOS kernel
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img3  4509696  8703999  4194304    2G ChromeOS root fs
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img4    53248    86015    32768   16M ChromeOS kernel
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img5   315392  4509695  4194304    2G ChromeOS root fs
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img6    16448    16448        1  512B ChromeOS kernel
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img7    16449    16449        1  512B ChromeOS root fs
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img8    86016   118783    32768   16M Linux filesystem
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img9    16450    16450        1  512B ChromeOS reserved
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img10   16451    16451        1  512B ChromeOS reserved
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img11      64    16447    16384    8M BIOS boot
+   clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img12  249856   315391    65536   32M EFI System
+   ```
 
 2. Mount the first partition (Linux Filesystem)
 
-```bash
-sudo mount -o ro,noload,noexec,offset=$((8704000*512)) clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img /mnt/case
-```
+   ```shell
+   sudo mount -o ro,noload,noexec,offset=$((8704000*512)) clone-gke-wp-cluster-default-pool-b4e5d97b-btxm.img /mnt/case
+   ```
 
 ## Docker Containers
 
-Container Explorer supports exploring Docker managed containers. Use 
+Container Explorer supports exploring Docker managed containers. Use
 `--docker-managed` global flag to explore Docker containers.
 
-```bash
+```shell
 sudo ce -i /mnt/case --support-container-data supportcontainer.yaml --docker-managed list containers
 ```
 
@@ -220,56 +219,70 @@ labels used to identify the support containers.
 
 When `--support-container-data` is used, the `list` and `mount-all` commands
 automatically ignores the known support containers where applicable. You can use
-`--show-support-containers` and `--mount-support-containers` to display and 
+`--show-support-containers` and `--mount-support-containers` to display and
 mount the support containers.
 
-# Installing Container Explorer
+### Filtering Containers
+
+Container Explorer supports filtering containers using the labels. This is particularly handy while reviewing GKE containers. Filter supports comma separated key/value pairs. The filter `--filter io.cri-containerd.kind=container` lists containerd containers.
+
+The command below shows containers in pod namespace `default`.
+
+```shell
+/opt/container-explorer/bin/ce -i /mnt list containers --filter io.cri-containerd.kind=container,io.kubernetes.pod.namespace=default
+```
+
+## Installing Container Explorer
 
 Follow the steps below to install a pre-compiled Container Explorer on Linux systems.
 
 1. Download setup script `setup.sh` which is located at `https://github.com/google/container-explorer/blob/main/script/setup.sh`
-   ```bash
+
+   ```shell
    wget https://raw.githubusercontent.com/google/container-explorer/main/script/setup.sh
    ```
 
 2. Run the script with `root` privileges.
-   ```bash
+
+   ```shell
    sudo bash setup.sh install
    ```
+
    Container Explorer files will be created at `/opt/container-explorer`
-   
+
 3. Run Container Explorer
-   ```
+
+   ```shell
    /opt/container-explorer/bin/ce -h
    ```
+
    **Note**: `supportcontainer.yaml` is located at `/opt/container-explorer/etc/supportcontainer.yaml`
 
-# Build Container Explorer
+## Build Container Explorer
 
 Follow the steps below to compile the Container Explorer.
 
 1. Verify Golang version is 1.20 or above
 
-```bash
-go version
-```
+   ```shell
+   go version
+   ```
 
 2. Clone Container Explorer github project
 
-```bash
-git clone https://github.com/google/container-explorer
-```
+   ```shell
+   git clone https://github.com/google/container-explorer
+   ```
 
 3. Compile the code
 
-```bash
-cd container-explorer
-go build -ldflags '-s -w' -o $HOME/ce cmd/main.go
-```
+   ```shell
+   cd container-explorer
+   go build -ldflags '-s -w' -o $HOME/ce cmd/main.go
+   ```
 
-3. Run container-explorer
+4. Run container-explorer
 
-```bash
-$HOME/ce -h
-```
-
+   ```bash
+   $HOME/ce -h
+   ```
