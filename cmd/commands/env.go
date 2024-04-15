@@ -110,9 +110,6 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 	if metadatafile == "" {
 		metadatafile = filepath.Join(containerdroot, "io.containerd.metadata.v1.bolt", "meta.db")
 	}
-	if snapshotfile == "" {
-		snapshotfile = filepath.Join(containerdroot, "io.containerd.snapshotter.v1.overlayfs", "metadata.db")
-	}
 
 	log.WithFields(log.Fields{
 		"imageroot":      imageroot,

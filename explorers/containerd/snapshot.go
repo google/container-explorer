@@ -145,47 +145,50 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 	return skinfos, nil
 }
 
-// OverlayPath returns the overlay paths lowerdir, upperdir, and workdir for a container.
-func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Container) (string, string, string, error) {
-	namespace, err := namespaces.NamespaceRequired(ctx)
-	if err != nil {
-		return "", "", "", fmt.Errorf("failed to get namespace from context %v", err)
+// NativePath returns the upperdir for a container.
+func (s *snapshotStore) NativePath(ctx context.Context, container containers.Container) (string, error) {
+	if s.sdb == nil {
+		return "", fmt.Errorf("snapshot database handler (metadata.db) is nil")
 	}
 
+	snapshotkeys, err := s.SnapshotKeys(ctx, container)
+	if err != nil {
+		return "", fmt.Errorf("could not get snapshot keys for container ", container.ID)
+	}
+
+	var (
+		upperdir     string
+		snapshotroot string
+	)
+
+	snapshotroot = snapshotRootDir(s.root, container.Snapshotter)
+	// Read snapshot metadata (metadata.db) snapshotkey bucket
+	// and extract value of key "id".
+	//
+	// The value of "id" specifies snapshot path in overlayfs
+	// i.e. /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/<id>/fs
+	if err := s.sdb.View(func(tx *bolt.Tx) error {
+		upperdirID, err := getSnapshotID(tx, snapshotkeys[0])
+		if err != nil {
+			return err
+		}
+		upperdir = filepath.Join(snapshotroot, "snapshots", fmt.Sprintf("%d", upperdirID))
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	return upperdir, nil
+}
+
+// OverlayPath returns the overlay paths lowerdir, upperdir, and workdir for a container.
+func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Container) (string, string, string, error) {
 	if s.sdb == nil {
 		return "", "", "", fmt.Errorf("snapshot database handler (metadata.db) is nil")
 	}
 
-	var snapshotkeys []string
-
-	if err := s.db.View(func(tx *bolt.Tx) error {
-		ssk := container.SnapshotKey
-
-		for {
-			bkt := getSnapshotKeyBucket(tx, namespace, container.Snapshotter, ssk)
-			log.WithFields(log.Fields{
-				"namespace":   namespace,
-				"snapshotter": container.Snapshotter,
-				"snapshotkey": ssk,
-			}).Debug("snapshot key bucket")
-			if bkt == nil {
-				return fmt.Errorf("empty meta.db snapshotkey bucket")
-			}
-
-			name := string(bkt.Get(bucketKeyName))
-			parent := string(bkt.Get(bucketKeyParent))
-
-			snapshotkeys = append(snapshotkeys, name)
-
-			if parent == "" {
-				break
-			}
-			ssk = parent
-		}
-
-		return nil
-	}); err != nil {
-		return "", "", "", err
+	snapshotkeys, err := s.SnapshotKeys(ctx, container)
+	if err != nil {
+		return "", "", "", fmt.Errorf("could not get snapshot keys for container ", container.ID)
 	}
 
 	var (
@@ -230,6 +233,46 @@ func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Co
 
 	// default return
 	return lowerdir, upperdir, workdir, nil
+}
+
+// SnapshotKeys returns the snapshot keys for a container.
+func (s *snapshotStore) SnapshotKeys(ctx context.Context, container containers.Container) ([]string, error) {
+	namespace, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get namespace from context %v", err)
+	}
+	var snapshotkeys []string
+
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		ssk := container.SnapshotKey
+
+		for {
+			bkt := getSnapshotKeyBucket(tx, namespace, container.Snapshotter, ssk)
+			log.WithFields(log.Fields{
+				"namespace":   namespace,
+				"snapshotter": container.Snapshotter,
+				"snapshotkey": ssk,
+			}).Debug("snapshot key bucket")
+			if bkt == nil {
+				return fmt.Errorf("empty meta.db snapshotkey bucket")
+			}
+
+			name := string(bkt.Get(bucketKeyName))
+			parent := string(bkt.Get(bucketKeyParent))
+
+			snapshotkeys = append(snapshotkeys, name)
+
+			if parent == "" {
+				break
+			}
+			ssk = parent
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return snapshotkeys, nil
 }
 
 // readMetaSnapshotKey parses the snapshot key key-value pairs in meta.db

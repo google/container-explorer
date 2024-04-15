@@ -441,16 +441,26 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	if err != nil {
 		return fmt.Errorf("failed getting container information %v", err)
 	}
-	log.WithFields(log.Fields{
-		"snapshotter": container.Snapshotter,
-		"snapshotKey": container.SnapshotKey,
-		"image":       container.Image,
-	}).Debug("container snapshotter")
 
 	// Snapshot database metadata.db access
 	opts := bolt.Options{
 		ReadOnly: true,
 	}
+
+	if e.snapshot == "" {
+		snapshotterFolder := e.SnapshotRoot(container.Snapshotter)
+		if snapshotterFolder != "unknown" {
+			e.snapshot = filepath.Join(snapshotterFolder, "metadata.db")
+		}
+	}
+
+	log.WithFields(log.Fields{
+		"snapshotter":       container.Snapshotter,
+		"snapshotKey":       container.SnapshotKey,
+		"image":             container.Image,
+		"snapshotterFolder": e.snapshot,
+	}).Debug("container snapshotter")
+
 	ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
 	if err != nil {
 		return fmt.Errorf("failed to open snapshot database %v", err)
@@ -458,24 +468,39 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 
 	// snapshot store
 	ssstore := NewSnaptshotStore(e.root, e.mdb, ssdb)
-	lowerdir, upperdir, workdir, err := ssstore.OverlayPath(ctx, container)
-	log.WithFields(log.Fields{
-		"lowerdir": lowerdir,
-		"upperdir": upperdir,
-		"workdir":  workdir,
-	}).Debug("overlay directories")
-	if err != nil {
-		return fmt.Errorf("failed to get overlay path %v", err)
+	var mountArgs []string
+	if container.Snapshotter == "overlayfs" {
+		lowerdir, upperdir, workdir, err := ssstore.OverlayPath(ctx, container)
+		log.WithFields(log.Fields{
+			"lowerdir": lowerdir,
+			"upperdir": upperdir,
+			"workdir":  workdir,
+		}).Debug("overlay directories")
+		if err != nil {
+			return fmt.Errorf("failed to get overlay path %v", err)
+		}
+
+		if lowerdir == "" {
+			return fmt.Errorf("lowerdir is empty")
+		}
+
+		// TODO(rmaskey): Use github.com/containerd/containerd/mount.Mount to mount
+		// a container
+		mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", upperdir, lowerdir)
+		mountArgs = []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
+	} else if container.Snapshotter == "native" {
+		upperdir, err := ssstore.NativePath(ctx, container)
+		log.WithFields(log.Fields{
+			"upperdir": upperdir,
+		}).Debug("native directories")
+		if err != nil {
+			return fmt.Errorf("failed to get native path %v", err)
+		}
+		mountArgs = []string{"-t", "bind", upperdir, mountpoint, "-o", "rbind,ro"}
+	} else {
+		log.Error("Unsupported snapshotter ", container.Snapshotter)
 	}
 
-	if lowerdir == "" {
-		return fmt.Errorf("lowerdir is empty")
-	}
-
-	// TODO(rmaskey): Use github.com/containerd/containerd/mount.Mount to mount
-	// a container
-	mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", upperdir, lowerdir)
-	mountArgs := []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
 	log.Debug("container mount command ", mountArgs)
 
 	cmd := exec.Command("mount", mountArgs...)
@@ -557,6 +582,8 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 			continue
 		}
 
+		// Clear snapshot database for each container
+		e.snapshot = ""
 		ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
 		if err := e.MountContainer(ctx, ctr.ID, ctrmountpoint); err != nil {
 			return err
