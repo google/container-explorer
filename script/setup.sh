@@ -3,7 +3,7 @@
 # ContainerExplorer installation script
 #
 set -e
-SCRIPTNAME=`basename $0`
+SCRIPTNAME=$(basename "$0")
 
 CE_VER=0.1.0
 CE_PKG=container-explorer.tar.gz
@@ -17,46 +17,46 @@ CE_TMP_DIR=${TMP_DIR}/container-explorer
 
 download_release() {
   echo "[+] Downloading container-explorer ${CE_PKG}"
-  wget -P ${TMP_DIR} https://github.com/google/container-explorer/releases/download/${CE_VER}/${CE_PKG} > /dev/null 2>&1
-  tar -zxf ${TMP_DIR}/container-explorer.tar.gz -C ${TMP_DIR} > /dev/null 2>&1
+  wget -P "${TMP_DIR}" https://github.com/google/container-explorer/releases/download/"${CE_VER}"/"${CE_PKG}" > /dev/null 2>&1
+  tar -zxf "${TMP_DIR}"/container-explorer.tar.gz -C "${TMP_DIR}" > /dev/null 2>&1
 }
 
 
 install_release() {
   echo "[+] Installing contianer-explorer"
-  if [ ! -d ${CE_DIR} ]; then
-    mkdir -p ${CE_DIR}/bin
-    mkdir -p ${CE_DIR}/etc
+  if [ ! -d "${CE_DIR}" ]; then
+    mkdir -p "${CE_DIR}"/bin
+    mkdir -p "${CE_DIR}"/etc
   fi
 
-  if [ -f ${CE_BIN} ]; then
-    rm -f ${CE_BIN}
+  if [ -f "${CE_BIN}" ]; then
+    rm -f "${CE_BIN}"
   fi
 
-  if [ -f ${CE_SUPPPORT} ]; then
-    rm -f ${CE_SUPPORT}
+  if [ -f "${CE_SUPPORT}" ]; then
+    rm -f "${CE_SUPPORT}"
   fi
 
   # Copy new binary and support file
-  cp -f ${CE_TMP_DIR}/ce ${CE_BIN}
-  cp -f ${CE_TMP_DIR}/supportcontainer.yaml ${CE_SUPPORT}
+  cp -f "${CE_TMP_DIR}"/ce "${CE_BIN}"
+  cp -f "${CE_TMP_DIR}"/supportcontainer.yaml "${CE_SUPPORT}"
 }
 
 uninstall_release() {
   echo "[+] Uninstalling container-explorer"
-  if [ -d ${CE_DIR} ]; then
-    rm -rf ${CE_DIR}
+  if [ -d "${CE_DIR}" ]; then
+    rm -rf "${CE_DIR}"
   fi
 }
 
 
 cleanup() {
   echo "[+] Cleaning up..."
-  rm -rf ${TMP_DIR} > /dev/null 2>&1
+  rm -rf "${TMP_DIR}" > /dev/null 2>&1
 }
 
 check_root() {
-  if [ `id -u` -ne 0 ]; then
+  if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root. Use sudo ${SCRIPTNAME}"
     exit 1
   fi
