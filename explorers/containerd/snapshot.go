@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -344,9 +345,21 @@ func getSnapshotID(tx *bolt.Tx, snapshotkey string) (uint64, error) {
 // /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs
 func snapshotRootDir(root string, snapshotter string) string {
 	dirs, _ := filepath.Glob(filepath.Join(root, "*"))
+	snapshotRoot := ""
 	for _, dir := range dirs {
 		if strings.Contains(strings.ToLower(dir), strings.ToLower(snapshotter)) {
-			return dir
+			filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+				if strings.Contains(path, "metadata.db") {
+					snapshotRoot, _ = filepath.Split(path)
+					log.WithFields(log.Fields{
+						"path":         path,
+						"snapshotRoot": snapshotRoot,
+					}).Debug("snapshot root")
+					return fs.SkipAll
+				}
+				return nil
+			})
+			return snapshotRoot
 		}
 	}
 	return ""

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,9 +75,21 @@ func NewExplorer(imageroot string, root string, manifest string, snapshot string
 // /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs
 func (e *explorer) SnapshotRoot(snapshotter string) string {
 	dirs, _ := filepath.Glob(filepath.Join(e.root, "*"))
+	snapshotRoot := ""
 	for _, dir := range dirs {
 		if strings.Contains(strings.ToLower(dir), strings.ToLower(snapshotter)) {
-			return dir
+			filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+				if strings.Contains(path, "metadata.db") {
+					snapshotRoot, _ = filepath.Split(path)
+					log.WithFields(log.Fields{
+						"path":         path,
+						"snapshotRoot": snapshotRoot,
+					}).Debug("snapshot root")
+					return fs.SkipAll
+				}
+				return nil
+			})
+			return snapshotRoot
 		}
 	}
 	return "unknown"
@@ -469,7 +482,22 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	// snapshot store
 	ssstore := NewSnaptshotStore(e.root, e.mdb, ssdb)
 	var mountArgs []string
-	if container.Snapshotter == "overlayfs" {
+	hasWorkDir := false
+	snapshotRoot, _ := filepath.Split(e.snapshot)
+	matches, _ := filepath.Glob(filepath.Join(snapshotRoot, "snapshots/*/work"))
+	if len(matches) > 0 {
+		hasWorkDir = true
+	}
+	if container.Snapshotter == "native" {
+		upperdir, err := ssstore.NativePath(ctx, container)
+		log.WithFields(log.Fields{
+			"upperdir": upperdir,
+		}).Debug("native directories")
+		if err != nil {
+			return fmt.Errorf("failed to get native path %v", err)
+		}
+		mountArgs = []string{"-t", "bind", upperdir, mountpoint, "-o", "rbind,ro"}
+	} else if hasWorkDir {
 		lowerdir, upperdir, workdir, err := ssstore.OverlayPath(ctx, container)
 		log.WithFields(log.Fields{
 			"lowerdir": lowerdir,
@@ -488,15 +516,6 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 		// a container
 		mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", upperdir, lowerdir)
 		mountArgs = []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
-	} else if container.Snapshotter == "native" {
-		upperdir, err := ssstore.NativePath(ctx, container)
-		log.WithFields(log.Fields{
-			"upperdir": upperdir,
-		}).Debug("native directories")
-		if err != nil {
-			return fmt.Errorf("failed to get native path %v", err)
-		}
-		mountArgs = []string{"-t", "bind", upperdir, mountpoint, "-o", "rbind,ro"}
 	} else {
 		log.Error("Unsupported snapshotter ", container.Snapshotter)
 	}
