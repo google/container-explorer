@@ -47,6 +47,7 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 	dockerroot := clictx.GlobalString("docker-root")
 	metadatafile := clictx.GlobalString("metadata-file")
 	snapshotfile := clictx.GlobalString("snapshot-metadata-file")
+	layercache := clictx.GlobalString("layer-cache")
 
 	// Read support container data if provided using global switch.
 	var sc *explorers.SupportContainer
@@ -119,7 +120,10 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 		"snapshotfile":   snapshotfile,
 	}).Debug("containerd container environment")
 
-	cde, err := containerd.NewExplorer(imageroot, containerdroot, metadatafile, snapshotfile, sc)
+	if !clictx.GlobalBool("use-layer-cache") {
+		layercache = ""
+	}
+	cde, err := containerd.NewExplorer(imageroot, containerdroot, metadatafile, snapshotfile, layercache, sc)
 	if err != nil {
 		return ctx, nil, func() { cancel() }, err
 	}

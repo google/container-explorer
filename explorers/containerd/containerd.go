@@ -38,16 +38,17 @@ import (
 )
 
 type explorer struct {
-	imageroot string                      // mounted image path
-	root      string                      // containerd root
-	manifest  string                      // path to manifest database file i.e. meta.db
-	snapshot  string                      // path to snapshot database file i.e. metadata.db
-	mdb       *bolt.DB                    // manifest database
-	sc        *explorers.SupportContainer // support container structure object
+	imageroot  string                      // mounted image path
+	root       string                      // containerd root
+	manifest   string                      // path to manifest database file i.e. meta.db
+	snapshot   string                      // path to snapshot database file i.e. metadata.db
+	layercache string                      // layer cache folder within snapshot root
+	mdb        *bolt.DB                    // manifest database
+	sc         *explorers.SupportContainer // support container structure object
 }
 
 // NewExplorer returns a ContainerExplorer interface to explore containerd.
-func NewExplorer(imageroot string, root string, manifest string, snapshot string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
+func NewExplorer(imageroot string, root string, manifest string, snapshot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
 	opt := &bolt.Options{
 		ReadOnly: true,
 	}
@@ -57,12 +58,13 @@ func NewExplorer(imageroot string, root string, manifest string, snapshot string
 	}
 
 	return &explorer{
-		imageroot: imageroot,
-		root:      root,
-		manifest:  manifest,
-		snapshot:  snapshot,
-		mdb:       db,
-		sc:        sc,
+		imageroot:  imageroot,
+		root:       root,
+		manifest:   manifest,
+		snapshot:   snapshot,
+		layercache: layercache,
+		mdb:        db,
+		sc:         sc,
 	}, nil
 }
 
@@ -260,7 +262,7 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 		}).Error(err)
 	}
 
-	store := NewSnaptshotStore(e.root, e.mdb, ssdb)
+	store := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
 
 	for _, ns := range nss {
 		ctx = namespaces.WithNamespace(ctx, ns)
@@ -480,7 +482,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	}
 
 	// snapshot store
-	ssstore := NewSnaptshotStore(e.root, e.mdb, ssdb)
+	ssstore := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
 	var mountArgs []string
 	hasWorkDir := false
 	snapshotRoot, _ := filepath.Split(e.snapshot)
