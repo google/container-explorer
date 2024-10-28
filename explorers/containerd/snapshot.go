@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -34,9 +35,10 @@ import (
 )
 
 type snapshotStore struct {
-	root string // containerd root directory
-	db   *bolt.DB
-	sdb  *bolt.DB
+	root       string // containerd root directory
+	layercache string
+	db         *bolt.DB
+	sdb        *bolt.DB
 }
 
 // NewSnapshotStore returns snapshotStore which handles viewing of snapshot information
@@ -54,11 +56,12 @@ type snapshotStore struct {
 // Snapshot path in snapshot database: metadata.db/v1/snapshots/<snapshot key>
 //   - id - Snapshot file system ID i.e. /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/<id>/fs
 //   - kind - ACTIVE vs COMMITTED
-func NewSnaptshotStore(root string, db *bolt.DB, sdb *bolt.DB) *snapshotStore {
+func NewSnaptshotStore(root string, layercache string, db *bolt.DB, sdb *bolt.DB) *snapshotStore {
 	return &snapshotStore{
-		root: root,
-		db:   db,
-		sdb:  sdb,
+		root:       root,
+		layercache: layercache,
+		db:         db,
+		sdb:        sdb,
 	}
 }
 
@@ -213,6 +216,18 @@ func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Co
 		upperdir = filepath.Join(snapshotroot, "snapshots", fmt.Sprintf("%d", upperdirID), "fs")
 		workdir = filepath.Join(snapshotroot, "snapshots", fmt.Sprintf("%d", upperdirID), "work")
 
+		if s.layercache != "" {
+			symlink, err := os.Readlink(upperdir)
+			if err == nil {
+				log.WithFields(log.Fields{
+					"id":      upperdirID,
+					"symlink": symlink,
+				}).Debug("upperdir")
+				_, layer := filepath.Split(symlink)
+				upperdir = filepath.Join(snapshotroot, s.layercache, layer)
+			}
+		}
+
 		// compute lowerdir
 		for _, ssk := range snapshotkeys[1:] {
 			id, err := getSnapshotID(tx, ssk)
@@ -220,6 +235,17 @@ func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Co
 				return err
 			}
 			ldir := filepath.Join(snapshotroot, "snapshots", fmt.Sprintf("%d", id), "fs")
+			if s.layercache != "" {
+				symlink, err := os.Readlink(ldir)
+				if err == nil {
+					log.WithFields(log.Fields{
+						"id":      id,
+						"symlink": symlink,
+					}).Debug("layer")
+					_, layer := filepath.Split(symlink)
+					ldir = filepath.Join(snapshotroot, "layers", layer)
+				}
+			}
 
 			if lowerdir == "" {
 				lowerdir = ldir

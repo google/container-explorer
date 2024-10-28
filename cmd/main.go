@@ -84,6 +84,15 @@ func main() {
 			Name:  "snapshot-metadata-file, s",
 			Usage: "specify the path to containerd snapshot metadata file i.e. metadata.db.",
 		},
+		cli.BoolFlag{
+			Name:  "use-layer-cache",
+			Usage: "attempt to use cached layers where layers are symlinks",
+		},
+		cli.StringFlag{
+			Name:  "layer-cache",
+			Usage: "cached layer folder within the snapshot root",
+			Value: "layers",
+		},
 		cli.StringFlag{
 			Name:  "namespace, n",
 			Usage: "specify container namespace",
