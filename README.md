@@ -31,7 +31,7 @@ NAME:
    container-explorer - A standalone utility to explore container details
 
 USAGE:
-   ce-patched [global options] command [command options] [arguments...]
+   ce [global options] command [command options] [arguments...]
 
 VERSION:
    0.2.1 (20240502)
