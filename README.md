@@ -12,6 +12,7 @@ Container Explorer provides the following functionalities:
 - Exploring images
 - Exploring snapshots
 - Exploring contents
+- Exploring container drift
 - Mounting containers
 - Support JSON output
 
@@ -28,39 +29,43 @@ The figure below shows the output of the container-explorer --help command.
 ```text
 NAME:
    container-explorer - A standalone utility to explore container details
- 
+
 USAGE:
-   container-explorer [global options] command [command options] [arguments...]
- 
+   ce-patched [global options] command [command options] [arguments...]
+
 VERSION:
-   0.0.2
- 
+   0.2.1 (20240502)
+
 DESCRIPTION:
    A standalone utility to explore container details.
-  
+
   Container explorer supports exploring containers managed using containerd and
-  docker. The utility also supports exploring containers created and managed
-  using Kubernetes.
-  
- 
+  docker. The utility also supports exploring containers created and managed using
+  Kubernetes.
+
+
 COMMANDS:
    list, ls              Lists container related information
    info                  show internal information
    mount                 mount a container to a mount point
    mount-all, mount_all  mount all containers
+   drift, diff           identifies container filesystem changes
    help, h               Shows a list of commands or help for one command
- 
+
 GLOBAL OPTIONS:
    --debug                                   enable debug messages
    --containerd-root value, -c value         specify containerd root directory
    --image-root value, -i value              specify mount point for a disk image
    --metadata-file value, -m value           specify the path to containerd metadata file i.e. meta.db
    --snapshot-metadata-file value, -s value  specify the path to containerd snapshot metadata file i.e. metadata.db.
+   --use-layer-cache                         attempt to use cached layers where layers are symlinks
+   --layer-cache value                       cached layer folder within the snapshot root (default: "layers")
    --namespace value, -n value               specify container namespace (default: "default")
    --docker-managed                          specify docker manages standalone or Kubernetes containers
    --docker-root value                       specify docker root directory. This is only used with flag --docker-managed
    --support-container-data value            a yaml file containing information about support containers
    --output value                            output format in json, table. Default is table (default: "table")
+   --output-file value, -o value             output file to save the content
    --help, -h                                show help
    --version, -v                             print the version
 ```
@@ -144,6 +149,12 @@ forensic VM as `/dev/sdb`.
    drwxr-xr-x 1 root root 4096 Feb  5 09:13 cc9bc4f6c6b35b8a3616d8b4586741d8dc148c62b394d276dfab7572ee5aa542
    drwxr-xr-x 1 root root 4096 Feb  5 09:13 d3d1ff8c4ef39acbdf0a44bee6c326786309e408942d6a2d42cbaa1661bac77f
    drwxr-xr-x 1 root root 4096 Feb  5 08:54 f3c910583a81e7441e2cbd209b72afa4740e676ff8d82f2c74fdc5c78e179c10
+   ```
+
+6. See filesystem changes
+
+   ```shell
+   sudo ce -i /mnt/case/ --output json --support-container-data supportcontainer.yaml drift
    ```
 
 6. Use your favorite forensic tool to process mounted containers.
