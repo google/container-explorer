@@ -32,7 +32,7 @@ var DriftCommand = cli.Command{
 	Aliases:     []string{"diff"},
 	Usage:       "identifies container filesystem changes",
 	Description: "identifies container filesystem changes for all containers",
-	ArgsUsage: "",
+	ArgsUsage: "[containerID]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "filter",
@@ -52,13 +52,19 @@ var DriftCommand = cli.Command{
         outputfile := clictx.GlobalString("output-file")
 		filter := clictx.String("filter")
 
+		// Getting container ID positional arg
+		var containerID string
+        if clictx.Args().Present() {
+            containerID = clictx.Args().First()
+        }
+
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
 			return err
 		}
 		defer cancel()
 
-		drifts, err := exp.ContainerDrift(ctx, filter, !clictx.Bool("mount-support-containers"))
+		drifts, err := exp.ContainerDrift(ctx, filter, !clictx.Bool("mount-support-containers"), containerID)
 		if err != nil {
 			log.WithField("message", err).Error("retrieving container drift")
             if output == "json" && outputfile != "" {
