@@ -60,6 +60,9 @@ type ContainerExplorer interface {
 	// MountAllContainer mounts all containers to the specfied path
 	MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error
 
+	// ContainerDrift identifies container filesystem changes
+	ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]Drift, error)
+
 	// Close releases the internal resources
 	Close() error
 }

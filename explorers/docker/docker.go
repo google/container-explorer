@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"syscall"
 
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/images"
@@ -453,6 +454,201 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 
 	// default
 	return nil
+}
+
+// ScanDiffDirectory identifies added or modified files in the diff directory
+func ScanDiffDirectory(diffDir string) (addedOrModified []string, inaccessibleFiles []string, err error) {
+    err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            relativePath, relErr := filepath.Rel(diffDir, path)
+            if relErr != nil {
+                return relErr
+            }
+            inaccessibleFiles = append(inaccessibleFiles, relativePath)
+            return nil // Continue walking despite the error
+        }
+        if !info.IsDir() {
+            relativePath, relErr := filepath.Rel(diffDir, path)
+            if relErr != nil {
+                return relErr
+            }
+
+            // Check if the file is a whiteout files
+            if info.Mode()&os.ModeCharDevice != 0 {
+                if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+                    rdev := stat.Rdev
+
+                    // Extract major and minor device numbers
+                    major := (rdev >> 8) & 0xfff
+                    minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
+
+                    if major == 0 && minor == 0 {
+                        // Whiteout file
+                        inaccessibleFiles = append(inaccessibleFiles, relativePath)
+                        return nil
+                    }
+                }
+            }
+
+			// Check if the file is not a symbolic link
+            if info.Mode()&os.ModeSymlink == 0 {
+                // Check if the file has executable permissions
+                mode := info.Mode().Perm()
+                if mode&0111 != 0 {
+                    // The file is executable by owner, group, or others
+                    relativePath += " (executable)"
+                }
+            }
+
+            addedOrModified = append(addedOrModified, relativePath)
+        }
+        return nil
+    })
+    return
+}
+
+// ContainerDrift finds drifted files from all the containers
+func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]explorers.Drift, error) {
+	var drifts []explorers.Drift
+	containersdir := filepath.Join(e.root, containersDirName)
+	log.WithField("containersdir", containersdir).Debug("docker containers directory")
+
+	containerids, err := e.GetContainerIDs(ctx, containersdir)
+	if err != nil {
+		return nil, fmt.Errorf("failed listing containers ID %v", err)
+	}
+	if containerids == nil {
+		return nil, fmt.Errorf("no container ID returned")
+	}
+
+	filters := strings.Split(filter, ",")
+
+	for _, containerid := range containerids {
+		cecontainer, err := e.GetCEContainer(ctx, containerid)
+		if err != nil {
+			log.WithField("containerid", containerid).Error("getting container details")
+			log.WithField("containerid", containerid).Warn("skipping container mount")
+			continue
+		}
+		
+		// If containerID is supplied & doesn't match skip
+		if containerID != "" && cecontainer.ID != containerID {
+			continue
+		}
+
+		if skipsupportcontainers && cecontainer.SupportContainer {
+			log.WithFields(log.Fields{
+				"namespace":   cecontainer.Namespace,
+				"containerid": cecontainer.ID,
+			}).Info("skip mounting Kubernetes support container")
+			continue
+		}
+
+		// Only analyze containers matching the filter.
+		analyze := true
+		for _, f := range filters {
+			if !strings.Contains(f, "=") {
+				continue
+			}
+
+			key := strings.Split(f, "=")[0]
+			value := strings.Split(f, "=")[1]
+
+			labelValue, ok := cecontainer.Labels[key]
+			if !ok {
+				analyze = false
+				break
+			}
+
+			if labelValue != value {
+				analyze = false
+				break
+			}
+		}
+
+		if !analyze {
+			continue
+		}
+
+		container, err := e.GetContainer(ctx, cecontainer.ID)
+		if err != nil {
+			return nil, fmt.Errorf("getting container %v", err)
+		}
+
+		containerMountIDPath := filepath.Join(e.root, repositoriesDirName, container.Driver, "layerdb", "mounts", cecontainer.ID, "mount-id")
+		log.WithField("containerMountIDPath", containerMountIDPath).Debug("container mount-id path")
+
+		mountIDByte, err := ioutil.ReadFile(containerMountIDPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading container mount-id")
+		}
+
+		mountID := string(mountIDByte)
+		log.WithField("mount-id", mountID).Debug("container mount-id")
+
+		// build container lower directory
+		lowerdirpath := filepath.Join(e.root, container.Driver, mountID, lowerdirName)
+		log.WithField("lowerdirpath", lowerdirpath).Debug("container lowerdir path")
+		data, err := ioutil.ReadFile(lowerdirpath)
+		if err != nil {
+			return nil, fmt.Errorf("reading lower file %v", err)
+		}
+
+		var lowerdir string
+		for i, ldir := range strings.Split(string(data), ":") {
+			ldirpath := filepath.Join(e.root, container.Driver, ldir)
+			if i == 0 {
+				lowerdir = ldirpath
+				continue
+			}
+			lowerdir = fmt.Sprintf("%s:%s", lowerdir, ldirpath)
+		}
+
+		upperdir := filepath.Join(e.root, container.Driver, mountID, "diff")
+		workdir := filepath.Join(e.root, container.Driver, mountID, "work")
+
+		log.WithFields(log.Fields{
+			"lowerdir": lowerdir,
+			"upperdir": upperdir,
+			"workdir":  workdir,
+		}).Debug("container overlay directories")
+
+		log.WithFields(log.Fields{
+                        "container ID": cecontainer.ID,
+                }).Debug("checking drift for container")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get overlay path %v", err)
+		}
+
+		if lowerdir == "" {
+			return nil, fmt.Errorf("lowerdir is empty")
+		}
+
+		// Scan upperdir
+		addedOrModified, inaccessibleFiles, err := ScanDiffDirectory(upperdir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan diff directory: %v", err)
+		}
+		drift := explorers.Drift{
+			ContainerID:       cecontainer.ID,
+			AddedOrModified:   addedOrModified,
+			InaccessibleFiles: inaccessibleFiles,
+		}
+		
+		drifts = append(drifts, drift)
+		for _, path := range addedOrModified {
+			log.WithFields(log.Fields{
+				"A ": path}).Debug("added or modified files")
+		}
+		if len(inaccessibleFiles) > 0 {
+			for _, path := range inaccessibleFiles {
+				log.WithFields(log.Fields{
+					"D ": path}).Debug("deleted files")
+			}
+		}
+	}
+	// default
+	return drifts, nil
 }
 
 // Close releases internal resources.

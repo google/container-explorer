@@ -126,6 +126,7 @@ func main() {
 		cecommands.InfoCommand,
 		cecommands.MountCommand,
 		cecommands.MountAllCommand,
+		cecommands.DriftCommand,
 	}
 
 	app.Before = func(context *cli.Context) error {

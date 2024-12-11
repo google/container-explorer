@@ -35,3 +35,9 @@ type Container struct {
 	Running      bool
 	ExposedPorts []string
 }
+
+type Drift struct {
+    ContainerID       string
+    AddedOrModified   []string
+    InaccessibleFiles []string
+}

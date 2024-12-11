@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/metadata"
@@ -615,6 +616,200 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 	return nil
 }
 
+// ScanDiffDirectory identifies added or modified files in the diff directory
+func ScanDiffDirectory(diffDir string) (addedOrModified []string, inaccessibleFiles []string, err error) {
+    err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            relativePath, relErr := filepath.Rel(diffDir, path)
+            if relErr != nil {
+                return relErr
+            }
+            inaccessibleFiles = append(inaccessibleFiles, relativePath)
+            return nil // Continue walking despite the error
+        }
+        if !info.IsDir() {
+            relativePath, relErr := filepath.Rel(diffDir, path)
+            if relErr != nil {
+                return relErr
+            }
+
+            // Check if the file is a whiteout files
+            if info.Mode()&os.ModeCharDevice != 0 {
+                if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+                    rdev := stat.Rdev
+
+                    // Extract major and minor device numbers
+                    major := (rdev >> 8) & 0xfff
+                    minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
+
+                    if major == 0 && minor == 0 {
+                        // This is a whiteout file
+                        inaccessibleFiles = append(inaccessibleFiles, relativePath)
+                        return nil
+                    }
+                }
+            }
+
+		// Check if the file is not a symbolic link
+            if info.Mode()&os.ModeSymlink == 0 {
+                // Check if the file has executable permissions
+                mode := info.Mode().Perm()
+                if mode&0111 != 0 {
+                    // The file is executable by owner, group, or others
+                    relativePath += " (executable)"
+                }
+            }
+
+            addedOrModified = append(addedOrModified, relativePath)
+        }
+        return nil
+    })
+    return
+}
+
+// ContainerDrift finds drifted files from all the containers
+func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]explorers.Drift, error) {
+	var drifts []explorers.Drift
+	ctrs, err := e.ListContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filters := strings.Split(filter, ",")
+
+	for _, ctr := range ctrs {
+		// If containerID is supplied & doesn't match skip
+		if containerID != "" && ctr.ID != containerID {
+            		continue
+        	}
+
+		// Skip Kubernetes suppot containers
+		if skipsupportcontainers && ctr.SupportContainer {
+			log.WithFields(log.Fields{
+				"namespace":   ctr.Namespace,
+				"containerid": ctr.ID,
+			}).Info("skip mounting Kubernetes containers")
+
+			continue
+		}
+
+		// Only analyze containers matching the filter.
+		analyze := true
+		for _, f := range filters {
+			if !strings.Contains(f, "=") {
+				continue
+			}
+
+			key := strings.Split(f, "=")[0]
+			value := strings.Split(f, "=")[1]
+
+			labelValue, ok := ctr.Labels[key]
+			if !ok {
+				analyze = false
+				break
+			}
+
+			if labelValue != value {
+				analyze = false
+				break
+			}
+		}
+
+		if !analyze {
+			continue
+		}
+
+		e.snapshot = ""
+		ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
+		store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
+
+		container, err := store.Get(ctx, ctr.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed getting container information %v", err)
+		}
+		// Snapshot database metadata.db access
+		opts := bolt.Options{
+			ReadOnly: true,
+		}
+		if e.snapshot == "" {
+			snapshotterFolder := e.SnapshotRoot(container.Snapshotter)
+			if snapshotterFolder != "unknown" {
+				e.snapshot = filepath.Join(snapshotterFolder, "metadata.db")
+			}
+		}
+		log.WithFields(log.Fields{
+			"snapshotter":       container.Snapshotter,
+			"snapshotKey":       container.SnapshotKey,
+			"image":             container.Image,
+			"snapshotterFolder": e.snapshot,
+		}).Debug("container snapshotter")
+		ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open snapshot database %v", err)
+		}
+		// snapshot store
+		ssstore := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
+		hasWorkDir := false
+		snapshotRoot, _ := filepath.Split(e.snapshot)
+		matches, _ := filepath.Glob(filepath.Join(snapshotRoot, "snapshots/*/work"))
+		if len(matches) > 0 {
+			hasWorkDir = true
+		}
+		if container.Snapshotter == "native" {
+			upperdir, err := ssstore.NativePath(ctx, container)
+			log.WithFields(log.Fields{
+				"upperdir": upperdir,
+			}).Debug("native directories")
+			if err != nil {
+				return nil, fmt.Errorf("failed to get native path %v", err)
+			}
+		} else if hasWorkDir {
+			lowerdir, upperdir, workdir, err := ssstore.OverlayPath(ctx, container)
+			log.WithFields(log.Fields{
+				"lowerdir": lowerdir,
+				"upperdir": upperdir,
+				"workdir":  workdir,
+			}).Debug("overlay directories")
+
+			log.WithFields(log.Fields{
+				"container ID": ctr.ID,
+			}).Debug("Checking drift for container")
+			if err != nil {
+				return nil, fmt.Errorf("failed to get overlay path %v", err)
+			}
+			if lowerdir == "" {
+				return nil, fmt.Errorf("lowerdir is empty")
+			}
+
+			// Scan upperdir
+			addedOrModified, inaccessibleFiles, err := ScanDiffDirectory(upperdir)
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan diff directory: %v", err)
+			}
+
+			drift := explorers.Drift{ContainerID: ctr.ID, AddedOrModified: addedOrModified, InaccessibleFiles: inaccessibleFiles}
+			
+			drifts = append(drifts, drift)
+			
+			for _, path := range addedOrModified {
+				log.WithFields(log.Fields{
+					"A ": path}).Debug("added or modified files")
+			}
+			if len(inaccessibleFiles) > 0 {
+				for _, path := range inaccessibleFiles {
+					log.WithFields(log.Fields{
+						"D ": path}).Debug("deleted files")
+				}
+			}
+		} else {
+			log.Error("Unsupported snapshotter ", container.Snapshotter)
+		}
+	}
+
+	// default
+	return drifts, nil
+}
+
 // Close releases the internal resources
 func (e *explorer) Close() error {
 	return e.mdb.Close()
@@ -680,3 +875,4 @@ func imageBasename(image string) string {
 	}
 	return imagebase
 }
+
