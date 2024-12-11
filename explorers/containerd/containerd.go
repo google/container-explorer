@@ -680,8 +680,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 	for _, ctr := range ctrs {
 		// If containerID is supplied & doesn't match skip
 		if containerID != "" && ctr.ID != containerID {
-            continue
-        }
+            		continue
+        	}
 
 		// Skip Kubernetes suppot containers
 		if skipsupportcontainers && ctr.SupportContainer {
