@@ -668,7 +668,7 @@ func ScanDiffDirectory(diffDir string) (addedOrModified []string, inaccessibleFi
 }
 
 // ContainerDrift finds drifted files from all the containers
-func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool) ([]explorers.Drift, error) {
+func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]explorers.Drift, error) {
 	var drifts []explorers.Drift
 	ctrs, err := e.ListContainers(ctx)
 	if err != nil {
@@ -678,6 +678,11 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 	filters := strings.Split(filter, ",")
 
 	for _, ctr := range ctrs {
+		// If containerID is supplied & doesn't match skip
+		if containerID != "" && ctr.ID != containerID {
+            continue
+        }
+
 		// Skip Kubernetes suppot containers
 		if skipsupportcontainers && ctr.SupportContainer {
 			log.WithFields(log.Fields{
@@ -688,8 +693,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			continue
 		}
 
-		// Only analyse containers matching the filter.
-		analyse := true
+		// Only analyze containers matching the filter.
+		analyze := true
 		for _, f := range filters {
 			if !strings.Contains(f, "=") {
 				continue
@@ -700,17 +705,17 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 
 			labelValue, ok := ctr.Labels[key]
 			if !ok {
-				analyse = false
+				analyze = false
 				break
 			}
 
 			if labelValue != value {
-				analyse = false
+				analyze = false
 				break
 			}
 		}
 
-		if !analyse {
+		if !analyze {
 			continue
 		}
 
@@ -782,25 +787,18 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				return nil, fmt.Errorf("failed to scan diff directory: %v", err)
 			}
 
-			drift := explorers.Drift{
-                ContainerID:       ctr.ID,
-                AddedOrModified:   addedOrModified,
-                InaccessibleFiles: inaccessibleFiles,
-            }
-
-            drifts = append(drifts, drift)
-
+			drift := explorers.Drift{ContainerID: ctr.ID, AddedOrModified: addedOrModified, InaccessibleFiles: inaccessibleFiles}
+			
+			drifts = append(drifts, drift)
+			
 			for _, path := range addedOrModified {
 				log.WithFields(log.Fields{
-					"A ": path,
-				}).Debug("added or modified files")
+					"A ": path}).Debug("added or modified files")
 			}
-
 			if len(inaccessibleFiles) > 0 {
 				for _, path := range inaccessibleFiles {
 					log.WithFields(log.Fields{
-						"D ": path,
-					}).Debug("deleted files")
+						"D ": path}).Debug("deleted files")
 				}
 			}
 		} else {
