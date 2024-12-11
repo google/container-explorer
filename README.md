@@ -157,6 +157,12 @@ forensic VM as `/dev/sdb`.
    sudo ce -i /mnt/case/ --output json --support-container-data supportcontainer.yaml drift
    ```
 
+   In order to see drift of a particular container, supply the container ID with drift/diff
+
+   ```shell
+   sudo ce -i /mnt/case/ --output json --support-container-data supportcontainer.yaml drift f3c910583a81e7441e2cbd209b72afa4740e676ff8d82f2c74fdc5c78e179c10
+   ```
+
 6. Use your favorite forensic tool to process mounted containers.
 
 ## Mounting Disk Image
