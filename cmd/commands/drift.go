@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Google LLC
+Copyright 2024 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -49,14 +49,14 @@ var DriftCommand = cli.Command{
 			return fmt.Errorf("feature is only supported on Linux")
 		}
 		output := clictx.GlobalString("output")
-        outputfile := clictx.GlobalString("output-file")
+        	outputfile := clictx.GlobalString("output-file")
 		filter := clictx.String("filter")
 
 		// Getting container ID positional arg
 		var containerID string
-        if clictx.Args().Present() {
-            containerID = clictx.Args().First()
-        }
+        	if clictx.Args().Present() {
+            		containerID = clictx.Args().First()
+        	}
 
 		ctx, exp, cancel, err := explorerEnvironment(clictx)
 		if err != nil {
@@ -67,49 +67,49 @@ var DriftCommand = cli.Command{
 		drifts, err := exp.ContainerDrift(ctx, filter, !clictx.Bool("mount-support-containers"), containerID)
 		if err != nil {
 			log.WithField("message", err).Error("retrieving container drift")
-            if output == "json" && outputfile != "" {
-                data := []string{}
-                writeOutputFile(data, outputfile)
-            }
-            return nil
+            		if output == "json" && outputfile != "" {
+                		data := []string{}
+                		writeOutputFile(data, outputfile)
+            		}
+            		return nil
 		}
-        // Handle output formats
-        if strings.ToLower(output) == "json" {
-            if outputfile != "" {
-                writeOutputFile(drifts, outputfile)
-            } else {
-                printAsJSON(drifts)
-            }
-            return nil
-        }
+        	// Handle output formats
+        	if strings.ToLower(output) == "json" {
+            		if outputfile != "" {
+                		writeOutputFile(drifts, outputfile)
+            		} else {
+                		printAsJSON(drifts)
+            		}
+            		return nil
+        	}
 
-        // Default to table output
-        tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
-        defer tw.Flush()
+        	// Default to table output
+        	tw := tabwriter.NewWriter(os.Stdout, 1, 8, 1, '\t', 0)
+        	defer tw.Flush()
 
-        if output == "table" {
-            // Define the header
-            fmt.Fprintf(tw, "CONTAINER ID\tADDED/MODIFIED\tDELETED\n")
-        }
+        	if output == "table" {
+            		// Define the header
+            		fmt.Fprintf(tw, "CONTAINER ID\tADDED/MODIFIED\tDELETED\n")
+        	}
 
-        for _, drift := range drifts {
-            switch strings.ToLower(output) {
-            case "json_line":
-                printAsJSONLine(drift)
-            default:
-                // Prepare the data for display
-                addedOrModified := strings.Join(drift.AddedOrModified, ", ")
-                inaccessibleFiles := strings.Join(drift.InaccessibleFiles, ", ")
+        	for _, drift := range drifts {
+            		switch strings.ToLower(output) {
+            		case "json_line":
+                		printAsJSONLine(drift)
+            		default:
+                		// Prepare the data for display
+                		addedOrModified := strings.Join(drift.AddedOrModified, ", ")
+                		inaccessibleFiles := strings.Join(drift.InaccessibleFiles, ", ")
 
-                displayValues := fmt.Sprintf("%s\t%s\t%s",
-                    drift.ContainerID,
-                    addedOrModified,
-                    inaccessibleFiles,
-                )
+                		displayValues := fmt.Sprintf("%s\t%s\t%s",
+                    			drift.ContainerID,
+                    			addedOrModified,
+                    			inaccessibleFiles,
+                		)
 
-                fmt.Fprintf(tw, "%v\n", displayValues)
-            }
-        }
+                		fmt.Fprintf(tw, "%v\n", displayValues)
+            		}
+        	}
 		// default
 		return nil
 	},
