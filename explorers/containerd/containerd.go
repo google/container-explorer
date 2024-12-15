@@ -788,7 +788,12 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				return nil, fmt.Errorf("failed to scan diff directory: %v", err)
 			}
 
-			drift := explorers.Drift{ContainerID: ctr.ID, AddedOrModified: addedOrModified, InaccessibleFiles: inaccessibleFiles}
+			drift := explorers.Drift{
+				ContainerID:       ctr.ID,
+				ContainerType:     ctr.ContainerType,
+				AddedOrModified:   addedOrModified,
+				InaccessibleFiles: inaccessibleFiles,
+			}
 
 			drifts = append(drifts, drift)
 

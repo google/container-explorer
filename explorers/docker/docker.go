@@ -634,6 +634,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 		}
 		drift := explorers.Drift{
 			ContainerID:       cecontainer.ID,
+			ContainerType:     cecontainer.ContainerType,
 			AddedOrModified:   addedOrModified,
 			InaccessibleFiles: inaccessibleFiles,
 		}

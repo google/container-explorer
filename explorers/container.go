@@ -39,6 +39,7 @@ type Container struct {
 // Drift provides information about container drift.
 type Drift struct {
 	ContainerID       string
+	ContainerType     string
 	AddedOrModified   []FileInfo
 	InaccessibleFiles []FileInfo
 }
