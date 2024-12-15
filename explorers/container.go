@@ -36,8 +36,9 @@ type Container struct {
 	ExposedPorts []string
 }
 
+// Drift provides information about container drift.
 type Drift struct {
-    ContainerID       string
-    AddedOrModified   []string
-    InaccessibleFiles []string
+	ContainerID       string
+	AddedOrModified   []FileInfo
+	InaccessibleFiles []FileInfo
 }

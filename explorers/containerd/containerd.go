@@ -617,54 +617,55 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 }
 
 // ScanDiffDirectory identifies added or modified files in the diff directory
-func ScanDiffDirectory(diffDir string) (addedOrModified []string, inaccessibleFiles []string, err error) {
-    err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            relativePath, relErr := filepath.Rel(diffDir, path)
-            if relErr != nil {
-                return relErr
-            }
-            inaccessibleFiles = append(inaccessibleFiles, relativePath)
-            return nil // Continue walking despite the error
-        }
-        if !info.IsDir() {
-            relativePath, relErr := filepath.Rel(diffDir, path)
-            if relErr != nil {
-                return relErr
-            }
+func ScanDiffDirectory(diffDir string) (addedOrModified []explorers.FileInfo, inaccessibleFiles []explorers.FileInfo, err error) {
+	err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if fileinfo, err := explorers.GetFileInfo(info, path, diffDir); err == nil {
+				inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
+			}
 
-            // Check if the file is a whiteout files
-            if info.Mode()&os.ModeCharDevice != 0 {
-                if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-                    rdev := stat.Rdev
+			return nil // Continue walking despite the error
+		}
+		if !info.IsDir() {
+			fileinfo, err := explorers.GetFileInfo(info, path, diffDir)
+			if err != nil {
+				return err
+			}
 
-                    // Extract major and minor device numbers
-                    major := (rdev >> 8) & 0xfff
-                    minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
+			// Check if the file is a whiteout files
+			if info.Mode()&os.ModeCharDevice != 0 {
+				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+					rdev := stat.Rdev
 
-                    if major == 0 && minor == 0 {
-                        // This is a whiteout file
-                        inaccessibleFiles = append(inaccessibleFiles, relativePath)
-                        return nil
-                    }
-                }
-            }
+					// Extract major and minor device numbers
+					major := (rdev >> 8) & 0xfff
+					minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
 
-		// Check if the file is not a symbolic link
-            if info.Mode()&os.ModeSymlink == 0 {
-                // Check if the file has executable permissions
-                mode := info.Mode().Perm()
-                if mode&0111 != 0 {
-                    // The file is executable by owner, group, or others
-                    relativePath += " (executable)"
-                }
-            }
+					if major == 0 && minor == 0 {
+						// This is a whiteout file
+						inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
 
-            addedOrModified = append(addedOrModified, relativePath)
-        }
-        return nil
-    })
-    return
+						return nil
+					}
+				}
+			}
+
+			// Check if the file is not a symbolic link
+			if info.Mode()&os.ModeSymlink == 0 {
+				// Check if the file has executable permissions
+				mode := info.Mode().Perm()
+				if mode&0111 != 0 {
+					// The file is executable by owner, group, or others
+					fileinfo.FileType = "executable"
+				}
+			}
+
+			addedOrModified = append(addedOrModified, *fileinfo)
+		}
+		return nil
+	})
+
+	return
 }
 
 // ContainerDrift finds drifted files from all the containers
@@ -680,8 +681,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 	for _, ctr := range ctrs {
 		// If containerID is supplied & doesn't match skip
 		if containerID != "" && ctr.ID != containerID {
-            		continue
-        	}
+			continue
+		}
 
 		// Skip Kubernetes suppot containers
 		if skipsupportcontainers && ctr.SupportContainer {
@@ -788,9 +789,9 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			}
 
 			drift := explorers.Drift{ContainerID: ctr.ID, AddedOrModified: addedOrModified, InaccessibleFiles: inaccessibleFiles}
-			
+
 			drifts = append(drifts, drift)
-			
+
 			for _, path := range addedOrModified {
 				log.WithFields(log.Fields{
 					"A ": path}).Debug("added or modified files")
@@ -875,4 +876,3 @@ func imageBasename(image string) string {
 	}
 	return imagebase
 }
-

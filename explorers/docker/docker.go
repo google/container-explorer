@@ -20,13 +20,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 	"syscall"
+	"time"
 
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/images"
@@ -237,7 +236,7 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 			"repositoriesfile": repositoriesfile,
 		}).Debug("image repository file")
 
-		data, err := ioutil.ReadFile(repositoriesfile)
+		data, err := os.ReadFile(repositoriesfile)
 		if err != nil {
 			return nil, fmt.Errorf("failed read repository file %v. %v", repositoriesfile, err)
 		}
@@ -319,7 +318,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	containerMountIDPath := filepath.Join(e.root, repositoriesDirName, container.Driver, "layerdb", "mounts", containerid, "mount-id")
 	log.WithField("containerMountIDPath", containerMountIDPath).Debug("container mount-id path")
 
-	mountIDByte, err := ioutil.ReadFile(containerMountIDPath)
+	mountIDByte, err := os.ReadFile(containerMountIDPath)
 	if err != nil {
 		return fmt.Errorf("reading container mount-id")
 	}
@@ -329,7 +328,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	// build container lower directory
 	lowerdirpath := filepath.Join(e.root, container.Driver, mountID, lowerdirName)
 	log.WithField("lowerdirpath", lowerdirpath).Debug("container lowerdir path")
-	data, err := ioutil.ReadFile(lowerdirpath)
+	data, err := os.ReadFile(lowerdirpath)
 	if err != nil {
 		return fmt.Errorf("reading lower file %v", err)
 	}
@@ -457,54 +456,58 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 }
 
 // ScanDiffDirectory identifies added or modified files in the diff directory
-func ScanDiffDirectory(diffDir string) (addedOrModified []string, inaccessibleFiles []string, err error) {
-    err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            relativePath, relErr := filepath.Rel(diffDir, path)
-            if relErr != nil {
-                return relErr
-            }
-            inaccessibleFiles = append(inaccessibleFiles, relativePath)
-            return nil // Continue walking despite the error
-        }
-        if !info.IsDir() {
-            relativePath, relErr := filepath.Rel(diffDir, path)
-            if relErr != nil {
-                return relErr
-            }
+func ScanDiffDirectory(diffDir string) (addedOrModified []explorers.FileInfo, inaccessibleFiles []explorers.FileInfo, err error) {
+	err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			fileinfo, err := explorers.GetFileInfo(info, path, diffDir)
+			if err != nil {
+				return err
+			}
 
-            // Check if the file is a whiteout files
-            if info.Mode()&os.ModeCharDevice != 0 {
-                if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-                    rdev := stat.Rdev
+			inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
 
-                    // Extract major and minor device numbers
-                    major := (rdev >> 8) & 0xfff
-                    minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
+			return nil // Continue walking despite the error
+		}
+		if !info.IsDir() {
+			fileinfo, err := explorers.GetFileInfo(info, path, diffDir)
+			if err != nil {
+				return err
+			}
 
-                    if major == 0 && minor == 0 {
-                        // Whiteout file
-                        inaccessibleFiles = append(inaccessibleFiles, relativePath)
-                        return nil
-                    }
-                }
-            }
+			// Check if the file is a whiteout files
+			if info.Mode()&os.ModeCharDevice != 0 {
+				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+					rdev := stat.Rdev
+
+					// Extract major and minor device numbers
+					major := (rdev >> 8) & 0xfff
+					minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
+
+					if major == 0 && minor == 0 {
+						// Whiteout file
+						inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
+
+						return nil
+					}
+				}
+			}
 
 			// Check if the file is not a symbolic link
-            if info.Mode()&os.ModeSymlink == 0 {
-                // Check if the file has executable permissions
-                mode := info.Mode().Perm()
-                if mode&0111 != 0 {
-                    // The file is executable by owner, group, or others
-                    relativePath += " (executable)"
-                }
-            }
+			if info.Mode()&os.ModeSymlink == 0 {
+				// Check if the file has executable permissions
+				mode := info.Mode().Perm()
+				if mode&0111 != 0 {
+					// The file is executable by owner, group, or others
+					fileinfo.FileType = "executable"
+				}
+			}
 
-            addedOrModified = append(addedOrModified, relativePath)
-        }
-        return nil
-    })
-    return
+			addedOrModified = append(addedOrModified, *fileinfo)
+		}
+		return nil
+	})
+
+	return
 }
 
 // ContainerDrift finds drifted files from all the containers
@@ -530,7 +533,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			log.WithField("containerid", containerid).Warn("skipping container mount")
 			continue
 		}
-		
+
 		// If containerID is supplied & doesn't match skip
 		if containerID != "" && cecontainer.ID != containerID {
 			continue
@@ -578,7 +581,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 		containerMountIDPath := filepath.Join(e.root, repositoriesDirName, container.Driver, "layerdb", "mounts", cecontainer.ID, "mount-id")
 		log.WithField("containerMountIDPath", containerMountIDPath).Debug("container mount-id path")
 
-		mountIDByte, err := ioutil.ReadFile(containerMountIDPath)
+		mountIDByte, err := os.ReadFile(containerMountIDPath)
 		if err != nil {
 			return nil, fmt.Errorf("reading container mount-id")
 		}
@@ -589,7 +592,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 		// build container lower directory
 		lowerdirpath := filepath.Join(e.root, container.Driver, mountID, lowerdirName)
 		log.WithField("lowerdirpath", lowerdirpath).Debug("container lowerdir path")
-		data, err := ioutil.ReadFile(lowerdirpath)
+		data, err := os.ReadFile(lowerdirpath)
 		if err != nil {
 			return nil, fmt.Errorf("reading lower file %v", err)
 		}
@@ -614,8 +617,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 		}).Debug("container overlay directories")
 
 		log.WithFields(log.Fields{
-                        "container ID": cecontainer.ID,
-                }).Debug("checking drift for container")
+			"container ID": cecontainer.ID,
+		}).Debug("checking drift for container")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get overlay path %v", err)
 		}
@@ -634,7 +637,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			AddedOrModified:   addedOrModified,
 			InaccessibleFiles: inaccessibleFiles,
 		}
-		
+
 		drifts = append(drifts, drift)
 		for _, path := range addedOrModified {
 			log.WithFields(log.Fields{
@@ -670,7 +673,7 @@ func (e *explorer) GetContainer(ctx context.Context, containerid string) (Config
 		return ConfigFile{}, fmt.Errorf("container config file %s does not exist", configV2Filename)
 	}
 
-	data, err := ioutil.ReadFile(containerConfigFile)
+	data, err := os.ReadFile(containerConfigFile)
 	if err != nil {
 		return ConfigFile{}, fmt.Errorf("reading container config file %s %v", configV2Filename, err)
 	}
@@ -739,7 +742,7 @@ func (e *explorer) GetRepositories(ctx context.Context) (map[string]string, erro
 
 		// Handle overlay2 storage
 		repositoriesfile := filepath.Join(storagedir, repositoriesFileName)
-		data, err := ioutil.ReadFile(repositoriesfile)
+		data, err := os.ReadFile(repositoriesfile)
 		if err != nil {
 			return nil, fmt.Errorf("failed reading repositories file %s. %v", repositoriesfile, err)
 		}
@@ -830,7 +833,7 @@ func readImageContent(storagename string, storagepath string, digest digest.Dige
 		"filename": imagecontentfile,
 	}).Debug("reading docker image content file")
 
-	data, err := ioutil.ReadFile(imagecontentfile)
+	data, err := os.ReadFile(imagecontentfile)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"storage name": storagename,
