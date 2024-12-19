@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	VERSION = "0.2.1 (20240502)"
+	VERSION = "0.3.1"
 )
 
 func init() {
