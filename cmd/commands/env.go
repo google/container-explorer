@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/containerd/containerd/namespaces"
 	"github.com/google/container-explorer/explorers"
 	"github.com/google/container-explorer/explorers/containerd"
 	"github.com/google/container-explorer/explorers/docker"
@@ -132,7 +133,7 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 	}, nil
 }
 
-func parseRuntimeConfig(clictx *cli.Context) (map[string]interface{}, error) {
+func parseRuntimeConfig(clictx *cli.Context) (context.Context, map[string]interface{}, error) {
 	// Global options
 	namespace := clictx.GlobalString("namespace")
 	imageRootDir := clictx.GlobalString("image-root")
@@ -144,9 +145,11 @@ func parseRuntimeConfig(clictx *cli.Context) (map[string]interface{}, error) {
 	useLayerCache := clictx.GlobalBool("use-layer-cache")
 	supportDataFile := clictx.GlobalString("support-container-data")
 
+	ctx := context.Background()
+	ctx = namespaces.WithNamespace(ctx, namespace)
 
 	if imageRootDir == "" && containerdRootDir == "" && dockerRootDir == "" {
-		return nil, fmt.Errorf("Missing required arguments. Use --image-root, --containerd-root or --docker-root")
+		return ctx, nil, fmt.Errorf("Missing required arguments. Use --image-root, --containerd-root or --docker-root")
 	}
 
 	if containerdRootDir == "" && imageRootDir != "" {
@@ -195,5 +198,5 @@ func parseRuntimeConfig(clictx *cli.Context) (map[string]interface{}, error) {
 	}
 	runtimeConfig["supportContainer"] = sc
 
-	return runtimeConfig, nil
+	return ctx, runtimeConfig, nil
 }

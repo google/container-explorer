@@ -17,11 +17,9 @@ limitations under the License.
 package commands
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 
-	"github.com/containerd/containerd/namespaces"
 	"github.com/google/container-explorer/explorers"
 	"github.com/google/container-explorer/explorers/containerd"
 	"github.com/google/container-explorer/explorers/docker"
@@ -73,7 +71,7 @@ var ExportCommand = cli.Command{
 		exportOptions["archive"] = exportAsArchive
 
 		// Process container-explorer runtime arguments
-		runtimeConfig, err := parseRuntimeConfig(clictx)
+		ctx, runtimeConfig, err := parseRuntimeConfig(clictx)
 		if err != nil {
 			return err
 		}
@@ -94,9 +92,6 @@ var ExportCommand = cli.Command{
 			"exportAsImage": exportAsImage,
 			"exportAsArchive": exportAsArchive,
 		}).Debug("Processing export request")
-
-		ctx := context.Background()
-		ctx = namespaces.WithNamespace(ctx, namespace)
 
 		cXplr, err := containerd.NewExplorer(imageRootDir, containerdRootDir, metadataFile, snapshotFile, layercache, sc)
 		if err == nil {
