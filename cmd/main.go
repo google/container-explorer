@@ -41,7 +41,7 @@ func main() {
 	app.Version = VERSION
 	app.Usage = "A standalone utility to explore container details"
 	app.Description = `A standalone utility to explore container details.
-	
+
 	Container explorer supports exploring containers managed using containerd and
 	docker. The utility also supports exploring containers created and managed using
 	Kubernetes.
@@ -127,6 +127,7 @@ func main() {
 		cecommands.MountCommand,
 		cecommands.MountAllCommand,
 		cecommands.DriftCommand,
+		cecommands.ExportCommand,
 	}
 
 	app.Before = func(context *cli.Context) error {

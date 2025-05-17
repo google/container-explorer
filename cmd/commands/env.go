@@ -131,3 +131,69 @@ func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.Contai
 		cancel()
 	}, nil
 }
+
+func parseRuntimeConfig(clictx *cli.Context) (map[string]interface{}, error) {
+	// Global options
+	namespace := clictx.GlobalString("namespace")
+	imageRootDir := clictx.GlobalString("image-root")
+	containerdRootDir := clictx.GlobalString("containerd-root")
+	dockerRootDir := clictx.GlobalString("docker-root")
+	metadataFile := clictx.GlobalString("metadata-file")
+	snapshotFile := clictx.GlobalString("snapshot-metadata-file")
+	layerCache := clictx.GlobalString("layer-cache")
+	useLayerCache := clictx.GlobalBool("use-layer-cache")
+	supportDataFile := clictx.GlobalString("support-container-data")
+
+
+	if imageRootDir == "" && containerdRootDir == "" && dockerRootDir == "" {
+		return nil, fmt.Errorf("Missing required arguments. Use --image-root, --containerd-root or --docker-root")
+	}
+
+	if containerdRootDir == "" && imageRootDir != "" {
+		 containerdRootDir = filepath.Join(imageRootDir, "var", "lib", "containerd")
+	}
+
+	if dockerRootDir == "" && imageRootDir != "" {
+		dockerRootDir = filepath.Join(imageRootDir, "var", "lib", "docker")
+	}
+
+	if metadataFile == "" {
+		metadataFile = filepath.Join(containerdRootDir, "io.containerd.metadata.v1.bolt", "meta.db")
+	}
+
+	if !useLayerCache {
+		layerCache = ""
+	}
+
+	log.WithFields(log.Fields{
+		"imageRootDir":      imageRootDir,
+		"containerdRootDir": containerdRootDir,
+		"dockerRootDir":     dockerRootDir,
+		"metadataFile":   metadataFile,
+		"snapshotFile":   snapshotFile,
+		"layerCache":     layerCache,
+		"useLayerCache":  useLayerCache,
+		"supportDataFile": supportDataFile,
+	}).Debug("container-explorer runtime configuration settings")
+
+	runtimeConfig := make(map[string]interface{})
+	runtimeConfig["namespace"] = namespace
+	runtimeConfig["imageRootDir"] = imageRootDir
+	runtimeConfig["containerdRootDir"] = containerdRootDir
+	runtimeConfig["dockerRootDir"] = dockerRootDir
+	runtimeConfig["metadataFile"] = metadataFile
+	runtimeConfig["snapshotFile"] = snapshotFile
+	runtimeConfig["layerCache"] = layerCache
+
+	var err error
+	var sc *explorers.SupportContainer
+	if supportDataFile != "" {
+		sc, err = explorers.NewSupportContainer(clictx.GlobalString("support-container-data"))
+		if err != nil {
+			log.Errorf("getting new support container: %v", err)
+		}
+	}
+	runtimeConfig["supportContainer"] = sc
+
+	return runtimeConfig, nil
+}

@@ -22,6 +22,8 @@ import (
 
 // ContainerExplorer defines the methods required to explore a container.
 type ContainerExplorer interface {
+	// ExportContainer exports a container as an image or archive.
+	ExportContainer(ctx context.Context, containerID string, outputDir string, exportOption map[string]bool) error
 
 	// SnapshotRoot returns the directory containing snapshots and snapshot
 	// database i.e. metadata.db
