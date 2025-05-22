@@ -128,6 +128,7 @@ func main() {
 		cecommands.MountAllCommand,
 		cecommands.DriftCommand,
 		cecommands.ExportCommand,
+		cecommands.ExportAllCommand,
 	}
 
 	app.Before = func(context *cli.Context) error {

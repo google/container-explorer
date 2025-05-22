@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/containerd/containerd/namespaces"
 	"github.com/google/container-explorer/explorers"
 	"github.com/google/container-explorer/utils"
 	log "github.com/sirupsen/logrus"
@@ -118,6 +119,70 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 		log.Infof("Successfully exported container %s as an archive.", targetContainer.ID)
 	}
 
+	return nil
+}
+
+// ExportAllContainers exports all containerd containers to specified output directory.
+func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, exportOption map[string]bool, filter map[string]string, exportSupportContainers bool) error {
+	containerNamespaces, err := e.ListNamespaces(ctx)
+	if err != nil {
+		return fmt.Errorf("listing namespaces: %w", err)
+	}
+
+	for _, containerNamespace := range containerNamespaces {
+		ctx = namespaces.WithNamespace(ctx, containerNamespace)
+
+		containers, err := e.ListContainers(ctx)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"namespace": containerNamespace,
+				"error": err,
+			}).Warnf("error listing containers in namespace")
+			continue
+		}
+
+		for _, container := range containers {
+			log.WithFields(log.Fields{
+				"containerID": container.ID,
+				"name": container.Runtime.Name,
+				"namespace": container.Namespace,
+				"containerType": container.ContainerType,
+			}).Debug("processing containerd container for export")
+
+			if !exportSupportContainers && container.SupportContainer{
+				log.WithFields(log.Fields{
+					"containerID": container.ID,
+					"name": container.Runtime.Name,
+					"namespace": container.Namespace,
+					"containerType": container.ContainerType,
+				}).Debug("skipping Kubernetes support containers")
+				continue
+			}
+
+			if utils.IgnoreContainer(container, filter) {
+				log.WithFields(log.Fields{
+					"containerID": container.ID,
+					"name": container.Runtime.Name,
+					"namespace": container.Namespace,
+					"containerType": container.ContainerType,
+				}).Debug("ignoring containerd container for export")
+				continue
+			}
+
+			err := e.ExportContainer(ctx, container.ID, outputDir, exportOption)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"containerID": container.ID,
+					"name": container.Runtime.Name,
+					"namespace": container.Namespace,
+					"containerType": container.ContainerType,
+					"error": err,
+				}).Error("error exporting containerd container")
+			}
+		}
+	}
+
+	// Default
 	return nil
 }
 
