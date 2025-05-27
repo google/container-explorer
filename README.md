@@ -31,10 +31,10 @@ NAME:
    container-explorer - A standalone utility to explore container details
 
 USAGE:
-   ce [global options] command [command options] [arguments...]
+   main [global options] command [command options] [arguments...]
 
 VERSION:
-   0.2.1 (20240502)
+   0.4.0
 
 DESCRIPTION:
    A standalone utility to explore container details.
@@ -42,15 +42,17 @@ DESCRIPTION:
   Container explorer supports exploring containers managed using containerd and
   docker. The utility also supports exploring containers created and managed using
   Kubernetes.
-
+  
 
 COMMANDS:
-   list, ls              Lists container related information
-   info                  show internal information
-   mount                 mount a container to a mount point
-   mount-all, mount_all  mount all containers
-   drift, diff           identifies container filesystem changes
-   help, h               Shows a list of commands or help for one command
+   list, ls                lists container related information
+   info                    show internal information
+   mount                   mount a container to a mount point
+   mount-all, mount_all    mount all containers
+   drift, diff             identifies container filesystem changes
+   export                  export a container
+   export-all, export_all  export all containers as image or archive
+   help, h                 Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
    --debug                                   enable debug messages

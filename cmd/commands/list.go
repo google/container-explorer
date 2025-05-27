@@ -35,7 +35,7 @@ const tsLayout = "2006-01-02T15:04:05Z"
 var ListCommand = cli.Command{
 	Name:    "list",
 	Aliases: []string{"ls"},
-	Usage:   "Lists container related information",
+	Usage:   "lists container related information",
 	Subcommands: cli.Commands{
 		listNamespaces,
 		listContainers,
