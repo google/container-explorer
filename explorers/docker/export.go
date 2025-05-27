@@ -153,25 +153,24 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 				continue
 			}
 
-			if utils.IgnoreContainer(container, filter) {
+			if utils.IncludeContainer(container, filter) {
 				log.WithFields(log.Fields{
 					"containerID": container.ID,
 					"name": container.Runtime.Name,
 					"namespace": container.Namespace,
 					"containerType": container.ContainerType,
 				}).Debug("ignoring Docker container for export")
-				continue
-			}
 
-			err := e.ExportContainer(ctx, container.ID, outputDir, exportOption)
-			if err != nil {
-				log.WithFields(log.Fields{
-					"containerID": container.ID,
-					"name": container.Runtime.Name,
-					"namespace": container.Namespace,
-					"containerType": container.ContainerType,
-					"error": err,
-				}).Error("error exporting Docker container")
+				err := e.ExportContainer(ctx, container.ID, outputDir, exportOption)
+				if err != nil {
+					log.WithFields(log.Fields{
+						"containerID": container.ID,
+						"name": container.Runtime.Name,
+						"namespace": container.Namespace,
+						"containerType": container.ContainerType,
+						"error": err,
+					}).Error("error exporting Docker container")
+				}
 			}
 		}
 	}
