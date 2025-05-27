@@ -35,3 +35,21 @@ func IgnoreContainer(container explorers.Container, filter map[string]string) bo
 
 	return ignore
 }
+
+func IncludeContainer(container explorers.Container, filter map[string]string) bool {
+	include := false
+
+	for k, v := range filter {
+		containerLabel, ok := container.Labels[k]
+		if !ok {
+			// Container label does not exist. Check next label.
+			continue
+		}
+		if containerLabel == v {
+			include = true
+			break
+		}
+	}
+
+	return include
+}
