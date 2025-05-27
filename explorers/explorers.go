@@ -22,16 +22,20 @@ import (
 
 // ContainerExplorer defines the methods required to explore a container.
 type ContainerExplorer interface {
+	// Close releases the internal resources
+	Close() error
 
-	// SnapshotRoot returns the directory containing snapshots and snapshot
-	// database i.e. metadata.db
-	//
-	// SnapshotRoot is required for the containers managed using containerd.
-	SnapshotRoot(snapshotter string) string
+	// ContainerDrift identifies container filesystem changes
+	ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]Drift, error)
 
-	// ListNamespaces returns all the namespaces in the metadata file i.e.
-	// meta.db
-	ListNamespaces(ctx context.Context) ([]string, error)
+	// ExportAllContainers exports all Docker and containerd containers.
+	ExportAllContainers(ctx context.Context, outputDir string, exportOption map[string]bool, filter map[string]string, exportSupportContainers bool) error
+
+	// ExportContainer exports a container as an image or archive.
+	ExportContainer(ctx context.Context, containerID string, outputDir string, exportOption map[string]bool) error
+
+	// InfoContainer returns container internal information
+	InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error)
 
 	// ListContainers returns all the containers in all the namespaces.
 	//
@@ -39,30 +43,31 @@ type ContainerExplorer interface {
 	// that holds additional information about the containers.
 	ListContainers(ctx context.Context) ([]Container, error)
 
+	// ListContent returns information about content
+	ListContent(ctx context.Context) ([]Content, error)
+
 	// ListImages returns content information
 	ListImages(ctx context.Context) ([]Image, error)
+
+	// ListNamespaces returns all the namespaces in the metadata file i.e.
+	// meta.db
+	ListNamespaces(ctx context.Context) ([]string, error)
 
 	// ListSnapshots returns the snapshot information
 	ListSnapshots(ctx context.Context) ([]SnapshotKeyInfo, error)
 
-	// ListContent returns information about content
-	ListContent(ctx context.Context) ([]Content, error)
-
 	// ListTasks returns the container task status
 	ListTasks(ctx context.Context) ([]Task, error)
-
-	// InfoContainer returns container internal information
-	InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error)
-
-	// MountContainer mounts a container to the specified path
-	MountContainer(ctx context.Context, containerid string, mountpoint string) error
 
 	// MountAllContainer mounts all containers to the specfied path
 	MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error
 
-	// ContainerDrift identifies container filesystem changes
-	ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]Drift, error)
+	// MountContainer mounts a container to the specified path
+	MountContainer(ctx context.Context, containerid string, mountpoint string) error
 
-	// Close releases the internal resources
-	Close() error
+	// SnapshotRoot returns the directory containing snapshots and snapshot
+	// database i.e. metadata.db
+	//
+	// SnapshotRoot is required for the containers managed using containerd.
+	SnapshotRoot(snapshotter string) string
 }
