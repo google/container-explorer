@@ -228,7 +228,7 @@ func exportContainerImage(ctx context.Context, containerID string, mountpoint st
 	imageSize := contentSize + overhead
 	log.Infof("Target image size for %s: %d bytes (content: %d, overhead: %d)", containerID, imageSize, contentSize, overhead)
 
-	imageFileName := fmt.Sprintf("%s.img", containerID)
+	imageFileName := fmt.Sprintf("%s.raw", containerID)
 	imageFilePath := filepath.Join(outputDir, imageFileName)
 
 	log.WithFields(log.Fields{
