@@ -35,88 +35,115 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 	// Check if the specified containerID exists.
 	containerExists := false
 
-	containers, err := e.ListContainers(ctx)
+	containerNamespaces, err := e.ListNamespaces(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
+		return fmt.Errorf("listing namespaces: %w", err)
 	}
-	var targetContainer explorers.Container
-	for _, container := range containers {
-		if container.ID == containerID {
-			targetContainer = container // Found the container
-			containerExists = true
-			break
+
+	for _, containerNamespace := range containerNamespaces {
+		ctx = namespaces.WithNamespace(ctx, containerNamespace)
+
+		containers, err := e.ListContainers(ctx)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"namespace": containerNamespace,
+				"error": err,
+			}).Warnf("error listing containers in namespace")
+			
+			continue
+		}
+
+		var targetContainer explorers.Container
+
+		for _, container := range containers {
+			if container.ID == containerID {
+				targetContainer = container // Found the container
+				containerExists = true
+				break
+			}
+		}
+
+		if !containerExists {
+			log.WithFields(log.Fields{
+				"containerID": containerID,
+				"namespace": containerNamespace,
+			}).Debug("no container in namespace")
+
+			continue
+		}
+
+		// Continue the following if a matching containerID is found.
+		log.WithFields(log.Fields{
+			"containerID": targetContainer.ID,
+			"name": targetContainer.Runtime.Name,
+			"namespace": targetContainer.Namespace,
+			"containerType": targetContainer.ContainerType,
+		}).Info("container found")
+
+		// Ensure outputDir exists
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+		}
+
+		// Mount the container
+		var mountpoint string
+		for {
+			mountpoint = utils.GetMountPoint()
+			exists, _ := utils.PathExists(mountpoint)
+			if !exists {
+				// Create the mountpoint directory
+				if err := os.MkdirAll(mountpoint, 0755); err != nil {
+					return fmt.Errorf("failed to create mountpoint directory %s: %w", mountpoint, err)
+				}
+				break
+			}
+		}
+		log.Infof("Attempting to mount container %s to %s", targetContainer.ID, mountpoint)
+
+		if err := e.MountContainer(ctx, targetContainer.ID, mountpoint); err != nil {
+			// If mountpoint was created, attempt to clean it up.
+			_ = os.Remove(mountpoint) // Best effort removal
+			return fmt.Errorf("failed to mount container %s: %w", targetContainer.ID, err)
+		}
+		log.Infof("Successfully mounted container %s to %s", targetContainer.ID, mountpoint)
+
+		// Defer unmount and cleanup of the mountpoint
+		defer func() {
+			log.Infof("Cleaning up mountpoint %s for container %s", mountpoint, targetContainer.ID)
+			unmountCmd := exec.Command("umount", mountpoint)
+			unmountCmdOutput, unmountErr := unmountCmd.CombinedOutput() // Run and get output/error
+			if unmountErr != nil {
+				log.Warnf("Failed to unmount %s: %v. Output: %s", mountpoint, unmountErr, string(unmountCmdOutput))
+			} else {
+				log.Infof("Successfully unmounted %s. Output: %s", mountpoint, string(unmountCmdOutput))
+			}
+
+			if rmErr := os.Remove(mountpoint); rmErr != nil {
+				log.Warnf("Failed to remove temporary mountpoint directory %s: %v", mountpoint, rmErr)
+			} else {
+				log.Infof("Successfully removed mountpoint directory %s", mountpoint)
+			}
+		}()
+
+		if exportOption["image"] {
+			log.Infof("Exporting container %s as a raw image to %s", targetContainer.ID, outputDir)
+			if err := exportContainerImage(ctx, targetContainer.ID, mountpoint, outputDir); err != nil {
+				return fmt.Errorf("failed to export container %s as raw image: %w", targetContainer.ID, err)
+			}
+			log.Infof("Successfully exported container %s as a raw image.", targetContainer.ID)
+		}
+
+		if exportOption["archive"] {
+			log.Infof("Exporting container %s as an archive to %s", targetContainer.ID, outputDir)
+			if err := exportContainerArchive(ctx, targetContainer.ID, mountpoint, outputDir); err != nil {
+				return fmt.Errorf("failed to export container %s as archive: %w", targetContainer.ID, err)
+			}
+			log.Infof("Successfully exported container %s as an archive.", targetContainer.ID)
 		}
 	}
 
 	if !containerExists {
-		return fmt.Errorf("container %s does not exist", containerID)
-	}
-	log.WithFields(log.Fields{
-		"containerID": targetContainer.ID,
-		"name": targetContainer.Runtime.Name,
-		"namespace": targetContainer.Namespace,
-		"containerType": targetContainer.ContainerType,
-	}).Info("container found")
-
-	// Ensure outputDir exists
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
-	}
-
-	// Mount the container
-	var mountpoint string
-	for {
-		mountpoint = utils.GetMountPoint()
-		exists, _ := utils.PathExists(mountpoint)
-		if !exists {
-			// Create the mountpoint directory
-			if err := os.MkdirAll(mountpoint, 0755); err != nil {
-				return fmt.Errorf("failed to create mountpoint directory %s: %w", mountpoint, err)
-			}
-			break
-		}
-	}
-	log.Infof("Attempting to mount container %s to %s", targetContainer.ID, mountpoint)
-
-	if err := e.MountContainer(ctx, targetContainer.ID, mountpoint); err != nil {
-		// If mountpoint was created, attempt to clean it up.
-		_ = os.Remove(mountpoint) // Best effort removal
-		return fmt.Errorf("failed to mount container %s: %w", targetContainer.ID, err)
-	}
-	log.Infof("Successfully mounted container %s to %s", targetContainer.ID, mountpoint)
-
-	// Defer unmount and cleanup of the mountpoint
-	defer func() {
-		log.Infof("Cleaning up mountpoint %s for container %s", mountpoint, targetContainer.ID)
-		unmountCmd := exec.Command("umount", mountpoint)
-		unmountCmdOutput, unmountErr := unmountCmd.CombinedOutput() // Run and get output/error
-		if unmountErr != nil {
-			log.Warnf("Failed to unmount %s: %v. Output: %s", mountpoint, unmountErr, string(unmountCmdOutput))
-		} else {
-			log.Infof("Successfully unmounted %s. Output: %s", mountpoint, string(unmountCmdOutput))
-		}
-
-		if rmErr := os.Remove(mountpoint); rmErr != nil {
-			log.Warnf("Failed to remove temporary mountpoint directory %s: %v", mountpoint, rmErr)
-		} else {
-			log.Infof("Successfully removed mountpoint directory %s", mountpoint)
-		}
-	}()
-
-	if exportOption["image"] {
-		log.Infof("Exporting container %s as a raw image to %s", targetContainer.ID, outputDir)
-		if err := exportContainerImage(ctx, targetContainer.ID, mountpoint, outputDir); err != nil {
-			return fmt.Errorf("failed to export container %s as raw image: %w", targetContainer.ID, err)
-		}
-		log.Infof("Successfully exported container %s as a raw image.", targetContainer.ID)
-	}
-
-	if exportOption["archive"] {
-		log.Infof("Exporting container %s as an archive to %s", targetContainer.ID, outputDir)
-		if err := exportContainerArchive(ctx, targetContainer.ID, mountpoint, outputDir); err != nil {
-			return fmt.Errorf("failed to export container %s as archive: %w", targetContainer.ID, err)
-		}
-		log.Infof("Successfully exported container %s as an archive.", targetContainer.ID)
+		log.Infof("Container %s not found containerd containers", containerID)
 	}
 
 	return nil
