@@ -30,8 +30,8 @@ import (
 
 var ExportCommand = cli.Command{
 	Name:        "export",
-	Usage:       "export a container",
-	Description: "export a container",
+	Usage:       "export a container as image or archive",
+	Description: "export a container as image or archive",
 	ArgsUsage:   "ID OUTPUTDIR",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
