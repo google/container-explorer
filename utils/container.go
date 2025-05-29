@@ -37,6 +37,10 @@ func IgnoreContainer(container explorers.Container, filter map[string]string) bo
 }
 
 func IncludeContainer(container explorers.Container, filter map[string]string) bool {
+	if filter == nil {
+		return true
+	}
+
 	include := false
 
 	for k, v := range filter {

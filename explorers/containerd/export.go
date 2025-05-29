@@ -49,7 +49,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 				"namespace": containerNamespace,
 				"error": err,
 			}).Warnf("error listing containers in namespace")
-			
+
 			continue
 		}
 
@@ -168,6 +168,11 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 			continue
 		}
 
+		log.WithFields(log.Fields{
+			"namespace": containerNamespace,
+			"container_count": len(containers),
+		}).Debug("containerd containers in namespace")
+
 		for _, container := range containers {
 			log.WithFields(log.Fields{
 				"containerID": container.ID,
@@ -193,7 +198,7 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 					"namespace": container.Namespace,
 					"containerType": container.ContainerType,
 				}).Debug("ignoring containerd container for export")
-				
+
 				err := e.ExportContainer(ctx, container.ID, outputDir, exportOption)
 				if err != nil {
 					log.WithFields(log.Fields{
