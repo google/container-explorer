@@ -17,11 +17,17 @@ limitations under the License.
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/google/container-explorer/explorers"
+	"github.com/google/container-explorer/explorers/containerd"
+	"github.com/google/container-explorer/explorers/docker"
+	"github.com/google/container-explorer/explorers/podman"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -58,27 +64,69 @@ var DriftCommand = cli.Command{
 			containerID = clictx.Args().First()
 		}
 
-		ctx, exp, cancel, err := explorerEnvironment(clictx)
+		ctx, runtimeConfig, err := parseRuntimeConfig(clictx)
 		if err != nil {
-			return err
-		}
-		defer cancel()
-
-		drifts, err := exp.ContainerDrift(ctx, filter, !clictx.Bool("mount-support-containers"), containerID)
-		if err != nil {
-			log.WithField("message", err).Error("retrieving container drift")
+			log.WithField("message", err).Error("setting container explorer environment")
 			if output == "json" && outputfile != "" {
 				data := []string{}
 				writeOutputFile(data, outputfile)
 			}
 			return nil
 		}
+
+		imageRootDir := runtimeConfig["imageRootDir"].(string)
+		containerdRootDir := runtimeConfig["containerdRootDir"].(string)
+		dockerRootDir := runtimeConfig["dockerRootDir"].(string)
+		layercache := runtimeConfig["layercache"].(string)
+		sc := runtimeConfig["supportContainerData"].(*explorers.SupportContainer)
+
+		var allDrifts []explorers.Drift
+
+		// Docker
+		dkrxplr, err := docker.NewExplorer(imageRootDir, containerdRootDir, dockerRootDir)
+		if err != nil {
+			log.Error("unable to get docker explorer")
+		} else {
+			drifts, err := checkContainerDrift(ctx, dkrxplr, filter, clictx, containerID)
+			if err != nil {
+				log.WithField("message", err).Error("retrieving docker container drift")
+			} else if drifts != nil {
+				allDrifts = append(allDrifts, drifts...)
+			}
+		}
+
+		// Podman
+		pmxplr, err := podman.NewExplorer(imageRootDir)
+		if err != nil {
+			log.Error("unable to get podman explorer")
+		} else {
+			drifts, err := checkContainerDrift(ctx, pmxplr, filter, clictx, containerID)
+			if err != nil {
+				log.WithField("message", err).Error("retrieving podman container drift")
+			} else if drifts != nil {
+				allDrifts = append(allDrifts, drifts...)
+			}
+		}
+
+		// Containerd
+		ctrxplr, err := containerd.NewExplorer(imageRootDir, containerdRootDir, dockerRootDir, layercache, sc)
+		if err != nil {
+			log.Error("unable to get containerd explorer")
+		} else {
+			drifts, err := checkContainerDrift(ctx, ctrxplr, filter, clictx, containerID)
+			if err != nil {
+				log.WithField("message", err).Error("retrieving containerd container drift")
+			} else if drifts != nil {
+				allDrifts = append(allDrifts, drifts...)
+			}
+		}
+
 		// Handle output formats
 		if strings.ToLower(output) == "json" {
 			if outputfile != "" {
-				writeOutputFile(drifts, outputfile)
+				writeOutputFile(allDrifts, outputfile)
 			} else {
-				printAsJSON(drifts)
+				printAsJSON(allDrifts)
 			}
 			return nil
 		}
@@ -92,7 +140,7 @@ var DriftCommand = cli.Command{
 			fmt.Fprintf(tw, "CONTAINER ID\tADDED/MODIFIED\tDELETED\n")
 		}
 
-		for _, drift := range drifts {
+		for _, drift := range allDrifts {
 			switch strings.ToLower(output) {
 			case "json_line":
 				printAsJSONLine(drift)
@@ -129,4 +177,8 @@ var DriftCommand = cli.Command{
 		// default
 		return nil
 	},
+}
+
+func checkContainerDrift(ctx context.Context, xplr explorers.ContainerExplorer, filter string, clictx *cli.Context, containerID string) ([]explorers.Drift, error) {
+	return xplr.ContainerDrift(ctx, filter, !clictx.Bool("mount-support-containers"), containerID)
 }

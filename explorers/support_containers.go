@@ -40,6 +40,9 @@ type SupportContainer struct {
 
 // NewSupportContainer returns the support container instance.
 func NewSupportContainer(path string) (*SupportContainer, error) {
+	if path == "" {
+		return nil, nil
+	}
 	sc, err := LoadSupportContainerFromFile(path)
 	if err != nil {
 		return nil, err

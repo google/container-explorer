@@ -25,12 +25,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/namespaces"
+
 	"github.com/google/container-explorer/explorers"
+	"github.com/google/container-explorer/utils"
 
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 
@@ -39,33 +40,46 @@ import (
 )
 
 type explorer struct {
-	imageroot  string                      // mounted image path
-	root       string                      // containerd root
-	manifest   string                      // path to manifest database file i.e. meta.db
-	snapshot   string                      // path to snapshot database file i.e. metadata.db
-	layercache string                      // layer cache folder within snapshot root
-	mdb        *bolt.DB                    // manifest database
-	sc         *explorers.SupportContainer // support container structure object
+	imageroot      string // mounted image path
+	containerdroot string
+	dockerroot     string
+	root           string // containerd root
+	manifestfile   string // path to manifest database file i.e. meta.db
+	snapshotfile   string
+	layercache     string                      // layer cache folder within snapshot root
+	mdb            *bolt.DB                    // manifest database
+	sc             *explorers.SupportContainer // support container structure object
 }
 
 // NewExplorer returns a ContainerExplorer interface to explore containerd.
-func NewExplorer(imageroot string, root string, manifest string, snapshot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
+// func NewExplorer(imageroot string, root string, manifest string, snapshot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
+func NewExplorer(imageroot string, containerdroot string, dockerroot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
 	opt := &bolt.Options{
 		ReadOnly: true,
 	}
-	db, err := bolt.Open(manifest, 0444, opt)
+
+	if _, err := utils.PathExists(containerdroot); err != nil {
+		return nil, fmt.Errorf("contained root directory does not exist")
+	}
+
+	manifestfile := filepath.Join(containerdroot, "io.containerd.metadata.v1.bolt", "meta.db")
+	if _, err := utils.PathExists(manifestfile); err != nil {
+		return nil, fmt.Errorf("containerd manifest file meta.db does not exist")
+	}
+
+	db, err := bolt.Open(manifestfile, 0444, opt)
 	if err != nil {
 		return &explorer{}, err
 	}
 
 	return &explorer{
-		imageroot:  imageroot,
-		root:       root,
-		manifest:   manifest,
-		snapshot:   snapshot,
-		layercache: layercache,
-		mdb:        db,
-		sc:         sc,
+		imageroot:      imageroot,
+		containerdroot: containerdroot,
+		dockerroot:     dockerroot,
+		manifestfile:   manifestfile,
+		layercache:     layercache,
+		mdb:            db,
+		sc:             sc,
 	}, nil
 }
 
@@ -77,8 +91,12 @@ func NewExplorer(imageroot string, root string, manifest string, snapshot string
 // The default snapshot root directrion location for containerd is
 // /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs
 func (e *explorer) SnapshotRoot(snapshotter string) string {
-	dirs, _ := filepath.Glob(filepath.Join(e.root, "*"))
-	snapshotRoot := ""
+	if snapshotter == "" {
+		return "unknown"
+	}
+
+	dirs, _ := filepath.Glob(filepath.Join(e.containerdroot, "*"))
+	snapshotRoot := "unknown"
 	for _, dir := range dirs {
 		if strings.Contains(strings.ToLower(dir), strings.ToLower(snapshotter)) {
 			filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -95,7 +113,7 @@ func (e *explorer) SnapshotRoot(snapshotter string) string {
 			return snapshotRoot
 		}
 	}
-	return "unknown"
+	return snapshotRoot
 }
 
 // ListNamespace returns namespaces.
@@ -145,7 +163,6 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 			cectr := convertToContainerExplorerContainer(ns, result)
 			cectr.ImageBase = imageBasename(cectr.Image)
 			cectr.SupportContainer = e.sc.IsSupportContainer(cectr)
-
 			task, err := e.GetContainerTask(ctx, cectr)
 			if err != nil {
 				log.WithField("containerid", cectr.ID).Error("failed getting container task")
@@ -183,9 +200,10 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 
 		for _, result := range results {
 			ceimages = append(ceimages, explorers.Image{
-				Namespace:             ns,
-				SupportContainerImage: e.sc.SupportContainerImage(imageBasename(result.Name)),
-				Image:                 result,
+				Namespace:     ns,
+				ContainerType: "containerd",
+				//SupportContainerImage: e.sc.SupportContainerImage(imageBasename(result.Name)),
+				Image: result,
 			})
 		}
 	}
@@ -256,14 +274,14 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 	opts := bolt.Options{
 		ReadOnly: true,
 	}
-	ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
+	ssdb, err := bolt.Open(e.snapshotfile, 0444, &opts)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"snapshotfile": e.snapshot,
+			"snapshotfile": e.snapshotfile,
 		}).Error(err)
 	}
 
-	store := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
+	store := NewSnapshotStore(e.containerdroot, e.layercache, e.mdb, ssdb)
 
 	for _, ns := range nss {
 		ctx = namespaces.WithNamespace(ctx, ns)
@@ -415,13 +433,31 @@ func (e *explorer) GetContainerState(ctx context.Context, ctr explorers.Containe
 	return state, nil
 }
 
-// InfoContainer returns container internal information.
-func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
+// getContainerStoreInfo finds the container across all namespaces and returns it and its namespace
+func (e *explorer) getContainerStoreInfo(ctx context.Context, containerid string) (containers.Container, string, error) {
+	nss, err := e.ListNamespaces(ctx)
+	if err != nil {
+		return containers.Container{}, "", err
+	}
+
 	store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
 
-	container, err := store.Get(ctx, containerid)
+	for _, ns := range nss {
+		nsCtx := namespaces.WithNamespace(ctx, ns)
+		container, err := store.Get(nsCtx, containerid)
+		if err == nil {
+			return container, ns, nil
+		}
+	}
+
+	return containers.Container{}, "", fmt.Errorf("no matching container")
+}
+
+// InfoContainer returns container internal information.
+func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
+	container, _, err := e.getContainerStoreInfo(ctx, containerid)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting container %s: %w", containerid, err)
 	}
 
 	if container.Spec != nil && container.Spec.GetValue() != nil {
@@ -451,42 +487,43 @@ func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec b
 
 // MountContainer mounts a container to the specified path
 func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
-	store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
-
-	container, err := store.Get(ctx, containerid)
+	container, ns, err := e.getContainerStoreInfo(ctx, containerid)
 	if err != nil {
 		return fmt.Errorf("failed getting container information %v", err)
 	}
+
+	ctx = namespaces.WithNamespace(ctx, ns)
 
 	// Snapshot database metadata.db access
 	opts := bolt.Options{
 		ReadOnly: true,
 	}
 
-	if e.snapshot == "" {
+	if e.snapshotfile == "" {
 		snapshotterFolder := e.SnapshotRoot(container.Snapshotter)
 		if snapshotterFolder != "unknown" {
-			e.snapshot = filepath.Join(snapshotterFolder, "metadata.db")
+			e.snapshotfile = filepath.Join(snapshotterFolder, "metadata.db")
 		}
 	}
+	fmt.Println("snapshotfile: ", e.snapshotfile)
 
 	log.WithFields(log.Fields{
-		"snapshotter":       container.Snapshotter,
-		"snapshotKey":       container.SnapshotKey,
-		"image":             container.Image,
-		"snapshotterFolder": e.snapshot,
-	}).Debug("container snapshotter")
+		"snapshotter":     container.Snapshotter,
+		"snapshotKey":     container.SnapshotKey,
+		"image":           container.Image,
+		"snapshotterFile": e.snapshotfile,
+	}).Debug("containerd container snapshotter")
 
-	ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
+	ssdb, err := bolt.Open(e.snapshotfile, 0444, &opts)
 	if err != nil {
-		return fmt.Errorf("failed to open snapshot database %v", err)
+		return fmt.Errorf("failed opening %s snapshot database %v", container.Snapshotter, err)
 	}
 
 	// snapshot store
-	ssstore := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
+	ssstore := NewSnapshotStore(e.containerdroot, e.layercache, e.mdb, ssdb)
 	var mountArgs []string
 	hasWorkDir := false
-	snapshotRoot, _ := filepath.Split(e.snapshot)
+	snapshotRoot, _ := filepath.Split(e.snapshotfile)
 	matches, _ := filepath.Glob(filepath.Join(snapshotRoot, "snapshots/*/work"))
 	if len(matches) > 0 {
 		hasWorkDir = true
@@ -605,7 +642,7 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 		}
 
 		// Clear snapshot database for each container
-		e.snapshot = ""
+		e.snapshotfile = ""
 		ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
 		if err := e.MountContainer(ctx, ctr.ID, ctrmountpoint); err != nil {
 			return err
@@ -614,58 +651,6 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 
 	// default
 	return nil
-}
-
-// ScanDiffDirectory identifies added or modified files in the diff directory
-func ScanDiffDirectory(diffDir string) (addedOrModified []explorers.FileInfo, inaccessibleFiles []explorers.FileInfo, err error) {
-	err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			if fileinfo, err := explorers.GetFileInfo(info, path, diffDir); err == nil {
-				inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
-			}
-
-			return nil // Continue walking despite the error
-		}
-		if !info.IsDir() {
-			fileinfo, err := explorers.GetFileInfo(info, path, diffDir)
-			if err != nil {
-				return err
-			}
-
-			// Check if the file is a whiteout files
-			if info.Mode()&os.ModeCharDevice != 0 {
-				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-					rdev := stat.Rdev
-
-					// Extract major and minor device numbers
-					major := (rdev >> 8) & 0xfff
-					minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
-
-					if major == 0 && minor == 0 {
-						// This is a whiteout file
-						inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
-
-						return nil
-					}
-				}
-			}
-
-			// Check if the file is not a symbolic link
-			if info.Mode()&os.ModeSymlink == 0 {
-				// Check if the file has executable permissions
-				mode := info.Mode().Perm()
-				if mode&0111 != 0 {
-					// The file is executable by owner, group, or others
-					fileinfo.FileType = "executable"
-				}
-			}
-
-			addedOrModified = append(addedOrModified, *fileinfo)
-		}
-		return nil
-	})
-
-	return
 }
 
 // ContainerDrift finds drifted files from all the containers
@@ -720,38 +705,40 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			continue
 		}
 
-		e.snapshot = ""
+		e.snapshotfile = ""
 		ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
 		store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
 
 		container, err := store.Get(ctx, ctr.ID)
 		if err != nil {
-			return nil, fmt.Errorf("failed getting container information %v", err)
+			log.WithFields(log.Fields{"container": ctr.ID, "error": err}).Error("failed getting container information")
+			continue
 		}
 		// Snapshot database metadata.db access
 		opts := bolt.Options{
 			ReadOnly: true,
 		}
-		if e.snapshot == "" {
+		if e.snapshotfile == "" {
 			snapshotterFolder := e.SnapshotRoot(container.Snapshotter)
 			if snapshotterFolder != "unknown" {
-				e.snapshot = filepath.Join(snapshotterFolder, "metadata.db")
+				e.snapshotfile = filepath.Join(snapshotterFolder, "metadata.db")
 			}
 		}
 		log.WithFields(log.Fields{
 			"snapshotter":       container.Snapshotter,
 			"snapshotKey":       container.SnapshotKey,
 			"image":             container.Image,
-			"snapshotterFolder": e.snapshot,
+			"snapshotterFolder": e.snapshotfile,
 		}).Debug("container snapshotter")
-		ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
+		ssdb, err := bolt.Open(e.snapshotfile, 0444, &opts)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open snapshot database %v", err)
+			log.WithFields(log.Fields{"container": ctr.ID, "error": err}).Error("failed to open snapshot database")
+			continue
 		}
 		// snapshot store
-		ssstore := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
+		ssstore := NewSnapshotStore(e.containerdroot, e.layercache, e.mdb, ssdb)
 		hasWorkDir := false
-		snapshotRoot, _ := filepath.Split(e.snapshot)
+		snapshotRoot, _ := filepath.Split(e.snapshotfile)
 		matches, _ := filepath.Glob(filepath.Join(snapshotRoot, "snapshots/*/work"))
 		if len(matches) > 0 {
 			hasWorkDir = true
@@ -762,7 +749,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				"upperdir": upperdir,
 			}).Debug("native directories")
 			if err != nil {
-				return nil, fmt.Errorf("failed to get native path %v", err)
+				log.WithFields(log.Fields{"container": ctr.ID, "error": err}).Error("failed to get native path")
+				continue
 			}
 		} else if hasWorkDir {
 			lowerdir, upperdir, workdir, err := ssstore.OverlayPath(ctx, container)
@@ -776,16 +764,19 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				"container ID": ctr.ID,
 			}).Debug("Checking drift for container")
 			if err != nil {
-				return nil, fmt.Errorf("failed to get overlay path %v", err)
+				log.WithFields(log.Fields{"container": ctr.ID, "error": err}).Error("failed to get overlay path")
+				continue
 			}
 			if lowerdir == "" {
-				return nil, fmt.Errorf("lowerdir is empty")
+				log.WithFields(log.Fields{"container": ctr.ID}).Error("lowerdir is empty")
+				continue
 			}
 
 			// Scan upperdir
-			addedOrModified, inaccessibleFiles, err := ScanDiffDirectory(upperdir)
+			addedOrModified, inaccessibleFiles, err := explorers.ScanDiffDirectory(upperdir)
 			if err != nil {
-				return nil, fmt.Errorf("failed to scan diff directory: %v", err)
+				log.WithFields(log.Fields{"container": ctr.ID, "error": err}).Error("failed to scan diff directory")
+				continue
 			}
 
 			drift := explorers.Drift{
@@ -819,6 +810,26 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 // Close releases the internal resources
 func (e *explorer) Close() error {
 	return e.mdb.Close()
+}
+
+func (e *explorer) GetContainerByID(ctx context.Context, containerid string) (*explorers.Container, error) {
+	container, ns, err := e.getContainerStoreInfo(ctx, containerid)
+	if err != nil {
+		return nil, err
+	}
+
+	cectr := convertToContainerExplorerContainer(ns, container)
+	cectr.ImageBase = imageBasename(cectr.Image)
+	//cectr.SupportContainer = e.sc.IsSupportContainer(cectr)
+	task, err := e.GetContainerTask(ctx, cectr)
+	if err != nil {
+		log.WithField("containerid", cectr.ID).Error("failed getting container task")
+	}
+	cectr.ProcessID = task.PID
+	cectr.ContainerType = task.ContainerType
+	cectr.Status = task.Status
+
+	return &cectr, nil
 }
 
 // convertToContainerExplorerContainer returns a Container object which is
@@ -855,6 +866,7 @@ func convertToContainerExplorerContainer(ns string, ctr containers.Container) ex
 
 	return explorers.Container{
 		Namespace: ns,
+		Name:      ctr.ID,
 		Hostname:  hostname,
 		Container: ctr,
 	}

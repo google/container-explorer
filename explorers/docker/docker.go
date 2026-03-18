@@ -24,13 +24,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/metadata"
+
 	"github.com/google/container-explorer/explorers"
+	"github.com/google/container-explorer/utils"
+
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	log "github.com/sirupsen/logrus"
@@ -39,7 +41,7 @@ import (
 
 const (
 	configV2Filename     = "config.v2.json"
-	containersDirName    = "containers"
+	containerDirName     = "containers"
 	lowerdirName         = "lower"
 	repositoriesDirName  = "image"
 	repositoriesFileName = "repositories.json"
@@ -55,9 +57,10 @@ type ImageRepository struct {
 }
 
 type explorer struct {
-	root           string // docker root directory
-	containerdroot string
-	manifest       string
+	imageroot      string // Image root directory
+	containerdroot string // containerd root directory
+	dockerroot     string // Docker root directory
+	manifest       string // io.containerd.manifest.v1.bolt/meta.db
 	snapshot       string
 	mdb            *bolt.DB                    // manifest database file
 	sc             *explorers.SupportContainer // support container object
@@ -65,11 +68,19 @@ type explorer struct {
 
 // NewExplorer returns a ContainerExplorer interface to explorer docker managed
 // containers.
-func NewExplorer(root string, containerdroot string, manifest string, snapshot string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
+// func NewExplorer(root string, containerdroot string, manifest string, snapshot string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
+func NewExplorer(imageroot string, containerdroot string, dockerroot string) (explorers.ContainerExplorer, error) {
+	if _, err := utils.PathExists(dockerroot); err != nil {
+		return nil, fmt.Errorf("docker root directory does not exist")
+	}
+
+	// Checking if containerd directory exists
 	var db *bolt.DB
 	var err error
 
-	if fileExists(containerdroot) {
+	manifest := filepath.Join(containerdroot, "io.containerd.metadata.v1.bolt", "meta.db")
+
+	if fileExists(manifest) {
 		opt := &bolt.Options{
 			ReadOnly: true,
 		}
@@ -80,19 +91,19 @@ func NewExplorer(root string, containerdroot string, manifest string, snapshot s
 	}
 
 	log.WithFields(log.Fields{
-		"root":           root,
-		"containerdroot": containerdroot,
-		"manifest":       manifest,
-		"snapshot":       snapshot,
+		"imageRootDir":      imageroot,
+		"containerdRootDir": containerdroot,
+		"dockerRootdir":     dockerroot,
+		"manifest":          manifest,
+		//		"snapshot":          snapshot,
 	}).Debug("new docker explorer")
 
 	return &explorer{
-		root:           root,
+		imageroot:      imageroot,
 		containerdroot: containerdroot,
+		dockerroot:     dockerroot,
 		manifest:       manifest,
-		snapshot:       snapshot,
 		mdb:            db,
-		sc:             sc,
 	}, nil
 }
 
@@ -128,9 +139,24 @@ func (e *explorer) ListNamespaces(ctx context.Context) ([]string, error) {
 	return nss, nil
 }
 
+func (e *explorer) GetContainerByID(ctx context.Context, containerid string) (*explorers.Container, error) {
+	containers, err := e.ListContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, container := range containers {
+		if container.ID == containerid {
+			return &container, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no matching container")
+}
+
 // GetContainerIDs returns container ID
 func (e *explorer) GetContainerIDs(ctx context.Context, containerdir string) ([]string, error) {
-	containerpaths, err := filepath.Glob(filepath.Join(containerdir, "*"))
+	containerpaths, err := filepath.Glob(filepath.Join(e.dockerroot, containerDirName, "*"))
 	if err != nil {
 		return nil, err
 	}
@@ -145,13 +171,13 @@ func (e *explorer) GetContainerIDs(ctx context.Context, containerdir string) ([]
 
 // ListContainers returns container information.
 func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, error) {
-	containersdir := filepath.Join(e.root, containersDirName)
+	containerdir := filepath.Join(e.dockerroot, containerDirName)
 	log.WithFields(log.Fields{
-		"dockerroot":    e.root,
-		"containersdir": containersdir,
+		"dockerroot":   e.dockerroot,
+		"containerDir": containerdir,
 	}).Debug("docker containers directory")
 
-	containerids, err := e.GetContainerIDs(ctx, containersdir)
+	containerids, err := e.GetContainerIDs(ctx, containerdir)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +189,6 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 		if err != nil {
 			return nil, err
 		}
-
 		cecontainers = append(cecontainers, cectr)
 	}
 
@@ -214,7 +239,7 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 	// Docker version 2
 	//
 	// Check for valid image repositories directory
-	repositoriesdir := filepath.Join(e.root, repositoriesDirName)
+	repositoriesdir := filepath.Join(e.dockerroot, repositoriesDirName)
 	if !fileExists(repositoriesdir) {
 		return nil, fmt.Errorf("valid image repositories directory %s not found", repositoriesdir)
 	}
@@ -265,6 +290,7 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 				}
 
 				ceimages = append(ceimages, explorers.Image{
+					ContainerType:         "docker",
 					Image:                 image,
 					SupportContainerImage: e.sc.SupportContainerImage(imageBasename(image.Name)),
 				})
@@ -293,29 +319,86 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 
 // ListTasks returns container task status
 func (e *explorer) ListTasks(cxt context.Context) ([]explorers.Task, error) {
-	// TODO(rmaskey): implement the function
-	fmt.Printf("INFO: listing task status not implemented\n\n")
-
 	var tasks []explorers.Task
+
+	containerPaths, err := filepath.Glob(filepath.Join(e.dockerroot, "containers", "*"))
+	if err != nil {
+		return nil, fmt.Errorf("listing docker container directories: %w", err)
+	}
+
+	for _, containerPath := range containerPaths {
+		configFile := filepath.Join(containerPath, "config.v2.json")
+
+		configData, err := os.ReadFile(configFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading container config: %w", err)
+		}
+
+		var config ConfigFile
+		if err := json.Unmarshal(configData, &config); err != nil {
+			return nil, fmt.Errorf("unmarshalling config.v2.json: %w", err)
+		}
+
+		var status string
+		if config.State.Paused {
+			status = "paused"
+		} else if config.State.Running {
+			status = "running"
+		}
+
+		task := explorers.Task{
+			ContainerType: "docker",
+			Name:          config.ID,
+			PID:           int(config.State.Pid),
+			Status:        status,
+		}
+
+		tasks = append(tasks, task)
+	}
+
 	return tasks, nil
 }
 
 // InfoContainer returns container internal information.
 func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
-	// TODO(rmaskey): implement the function
-	fmt.Printf("INFO: container info not implemented\n\n")
+	c, err := e.GetContainerByID(ctx, containerid)
+	if err != nil {
+		return nil, fmt.Errorf("getting container %s: %w", containerid, err)
+	}
 
-	return nil, nil
+	container, err := e.ReadContainerConfig(ctx, containerid)
+	if err != nil {
+		return nil, fmt.Errorf("reading container config: %w", err)
+	}
+
+	_ = c // Just accessing c for its namespace if needed, although docker config lookup might not strictly need it.
+
+	// Format InfoContainer output similar to containerd
+	return container, nil
+}
+
+func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
+	container, err := e.ReadContainerConfig(ctx, containerid)
+	if err != nil {
+		return fmt.Errorf("reading container config: %w", err)
+	}
+
+	mountIDPath := filepath.Join(e.dockerroot, "image", container.Driver, "layerdb", "mounts", containerid, "mount-id")
+	if utils.PathExistsV2(mountIDPath) {
+		return e.mountContainerV1(ctx, containerid, mountpoint)
+	}
+
+	return e.mountContainerV2(ctx, containerid, mountpoint)
 }
 
 // MountContainer mounts a container to the specified path
-func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
-	container, err := e.GetContainer(ctx, containerid)
+func (e *explorer) mountContainerV1(ctx context.Context, containerid string, mountpoint string) error {
+	container, err := e.ReadContainerConfig(ctx, containerid)
 	if err != nil {
 		return fmt.Errorf("getting container %v", err)
 	}
 
-	containerMountIDPath := filepath.Join(e.root, repositoriesDirName, container.Driver, "layerdb", "mounts", containerid, "mount-id")
+	containerMountIDPath := filepath.Join(e.imageroot, repositoriesDirName, container.Driver, "layerdb", "mounts", containerid, "mount-id")
 	log.WithField("containerMountIDPath", containerMountIDPath).Debug("container mount-id path")
 
 	mountIDByte, err := os.ReadFile(containerMountIDPath)
@@ -326,7 +409,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	log.WithField("mount-id", mountID).Debug("container mount-id")
 
 	// build container lower directory
-	lowerdirpath := filepath.Join(e.root, container.Driver, mountID, lowerdirName)
+	lowerdirpath := filepath.Join(e.imageroot, container.Driver, mountID, lowerdirName)
 	log.WithField("lowerdirpath", lowerdirpath).Debug("container lowerdir path")
 	data, err := os.ReadFile(lowerdirpath)
 	if err != nil {
@@ -335,7 +418,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 
 	var lowerdir string
 	for i, ldir := range strings.Split(string(data), ":") {
-		ldirpath := filepath.Join(e.root, container.Driver, ldir)
+		ldirpath := filepath.Join(e.imageroot, container.Driver, ldir)
 		if i == 0 {
 			lowerdir = ldirpath
 			continue
@@ -343,8 +426,8 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 		lowerdir = fmt.Sprintf("%s:%s", lowerdir, ldirpath)
 	}
 
-	upperdir := filepath.Join(e.root, container.Driver, mountID, "diff")
-	workdir := filepath.Join(e.root, container.Driver, mountID, "work")
+	upperdir := filepath.Join(e.imageroot, container.Driver, mountID, "diff")
+	workdir := filepath.Join(e.imageroot, container.Driver, mountID, "work")
 
 	log.WithFields(log.Fields{
 		"lowerdir": lowerdir,
@@ -362,7 +445,13 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 		log.Errorf("running mount command %v", mountargs)
 
 		if strings.Contains(err.Error(), " 32") {
+			if string(out) != "" {
+				return fmt.Errorf("invalid lowerdir path %v. output: %s", err, strings.TrimSpace(string(out)))
+			}
 			return fmt.Errorf("invalid lowerdir path %v. Use --debug to view lowerdir path", err)
+		}
+		if string(out) != "" {
+			return fmt.Errorf("executing mount command %v. output: %s", err, strings.TrimSpace(string(out)))
 		}
 		return fmt.Errorf("executing mount command %v", err)
 	}
@@ -374,9 +463,13 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	return nil
 }
 
+func (e *explorer) mountContainerV2(ctx context.Context, containerid string, mountpoint string) error {
+	return nil
+}
+
 // MountAllContainers mounts all the containers
 func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error {
-	containersdir := filepath.Join(e.root, containersDirName)
+	containersdir := filepath.Join(e.imageroot, containerDirName)
 	log.WithField("containersdir", containersdir).Debug("docker containers directory")
 
 	containerids, err := e.GetContainerIDs(ctx, containersdir)
@@ -455,65 +548,10 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 	return nil
 }
 
-// ScanDiffDirectory identifies added or modified files in the diff directory
-func ScanDiffDirectory(diffDir string) (addedOrModified []explorers.FileInfo, inaccessibleFiles []explorers.FileInfo, err error) {
-	err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			fileinfo, err := explorers.GetFileInfo(info, path, diffDir)
-			if err != nil {
-				return err
-			}
-
-			inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
-
-			return nil // Continue walking despite the error
-		}
-		if !info.IsDir() {
-			fileinfo, err := explorers.GetFileInfo(info, path, diffDir)
-			if err != nil {
-				return err
-			}
-
-			// Check if the file is a whiteout files
-			if info.Mode()&os.ModeCharDevice != 0 {
-				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-					rdev := stat.Rdev
-
-					// Extract major and minor device numbers
-					major := (rdev >> 8) & 0xfff
-					minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
-
-					if major == 0 && minor == 0 {
-						// Whiteout file
-						inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
-
-						return nil
-					}
-				}
-			}
-
-			// Check if the file is not a symbolic link
-			if info.Mode()&os.ModeSymlink == 0 {
-				// Check if the file has executable permissions
-				mode := info.Mode().Perm()
-				if mode&0111 != 0 {
-					// The file is executable by owner, group, or others
-					fileinfo.FileType = "executable"
-				}
-			}
-
-			addedOrModified = append(addedOrModified, *fileinfo)
-		}
-		return nil
-	})
-
-	return
-}
-
 // ContainerDrift finds drifted files from all the containers
 func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]explorers.Drift, error) {
 	var drifts []explorers.Drift
-	containersdir := filepath.Join(e.root, containersDirName)
+	containersdir := filepath.Join(e.imageroot, containerDirName)
 	log.WithField("containersdir", containersdir).Debug("docker containers directory")
 
 	containerids, err := e.GetContainerIDs(ctx, containersdir)
@@ -573,33 +611,36 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			continue
 		}
 
-		container, err := e.GetContainer(ctx, cecontainer.ID)
+		container, err := e.ReadContainerConfig(ctx, cecontainer.ID)
 		if err != nil {
-			return nil, fmt.Errorf("getting container %v", err)
+			log.WithFields(log.Fields{"container": cecontainer.ID, "error": err}).Error("getting container")
+			continue
 		}
 
-		containerMountIDPath := filepath.Join(e.root, repositoriesDirName, container.Driver, "layerdb", "mounts", cecontainer.ID, "mount-id")
+		containerMountIDPath := filepath.Join(e.imageroot, repositoriesDirName, container.Driver, "layerdb", "mounts", cecontainer.ID, "mount-id")
 		log.WithField("containerMountIDPath", containerMountIDPath).Debug("container mount-id path")
 
 		mountIDByte, err := os.ReadFile(containerMountIDPath)
 		if err != nil {
-			return nil, fmt.Errorf("reading container mount-id")
+			log.WithFields(log.Fields{"container": cecontainer.ID, "error": err}).Error("reading container mount-id")
+			continue
 		}
 
 		mountID := string(mountIDByte)
 		log.WithField("mount-id", mountID).Debug("container mount-id")
 
 		// build container lower directory
-		lowerdirpath := filepath.Join(e.root, container.Driver, mountID, lowerdirName)
+		lowerdirpath := filepath.Join(e.imageroot, container.Driver, mountID, lowerdirName)
 		log.WithField("lowerdirpath", lowerdirpath).Debug("container lowerdir path")
 		data, err := os.ReadFile(lowerdirpath)
 		if err != nil {
-			return nil, fmt.Errorf("reading lower file %v", err)
+			log.WithFields(log.Fields{"container": cecontainer.ID, "error": err}).Error("reading lower file")
+			continue
 		}
 
 		var lowerdir string
 		for i, ldir := range strings.Split(string(data), ":") {
-			ldirpath := filepath.Join(e.root, container.Driver, ldir)
+			ldirpath := filepath.Join(e.imageroot, container.Driver, ldir)
 			if i == 0 {
 				lowerdir = ldirpath
 				continue
@@ -607,8 +648,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			lowerdir = fmt.Sprintf("%s:%s", lowerdir, ldirpath)
 		}
 
-		upperdir := filepath.Join(e.root, container.Driver, mountID, "diff")
-		workdir := filepath.Join(e.root, container.Driver, mountID, "work")
+		upperdir := filepath.Join(e.imageroot, container.Driver, mountID, "diff")
+		workdir := filepath.Join(e.imageroot, container.Driver, mountID, "work")
 
 		log.WithFields(log.Fields{
 			"lowerdir": lowerdir,
@@ -619,18 +660,17 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 		log.WithFields(log.Fields{
 			"container ID": cecontainer.ID,
 		}).Debug("checking drift for container")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get overlay path %v", err)
-		}
 
 		if lowerdir == "" {
-			return nil, fmt.Errorf("lowerdir is empty")
+			log.WithFields(log.Fields{"container": cecontainer.ID}).Error("lowerdir is empty")
+			continue
 		}
 
 		// Scan upperdir
-		addedOrModified, inaccessibleFiles, err := ScanDiffDirectory(upperdir)
+		addedOrModified, inaccessibleFiles, err := explorers.ScanDiffDirectory(upperdir)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan diff directory: %v", err)
+			log.WithFields(log.Fields{"container": cecontainer.ID, "error": err}).Error("failed to scan diff directory")
+			continue
 		}
 		drift := explorers.Drift{
 			ContainerID:       cecontainer.ID,
@@ -660,9 +700,9 @@ func (e *explorer) Close() error {
 	return e.mdb.Close()
 }
 
-// GetContainer returns container configuration
-func (e *explorer) GetContainer(ctx context.Context, containerid string) (ConfigFile, error) {
-	containerdir := filepath.Join(e.root, containersDirName, containerid)
+// ReadContainerConfig returns container configuration
+func (e *explorer) ReadContainerConfig(ctx context.Context, containerid string) (ConfigFile, error) {
+	containerdir := filepath.Join(e.dockerroot, containerDirName, containerid)
 	log.WithField("containerdir", containerdir).Debug("container directory")
 	if !fileExists(containerdir) {
 		return ConfigFile{}, fmt.Errorf("container does not exist")
@@ -694,7 +734,7 @@ func (e *explorer) GetCEContainer(ctx context.Context, containerid string) (expl
 	}
 
 	// Get docker container configuration based on container ID
-	config, err := e.GetContainer(ctx, containerid)
+	config, err := e.ReadContainerConfig(ctx, containerid)
 	if err != nil {
 		return explorers.Container{}, err
 	}
@@ -709,8 +749,16 @@ func (e *explorer) GetCEContainer(ctx context.Context, containerid string) (expl
 	}
 
 	// Extrac imagebase name from image name
+	if strings.HasPrefix(config.Name, "/") {
+		cectr.Name = strings.Replace(config.Name, "/", "", -1)
+	} else {
+		cectr.Name = config.Name
+	}
+
 	cectr.ImageBase = imageBasename(cectr.Image)
-	cectr.SupportContainer = e.sc.IsSupportContainer(cectr)
+
+	// Support container is only relevant for GKE running containerd.
+	cectr.SupportContainer = false
 
 	return cectr, nil
 }
@@ -722,7 +770,7 @@ func fileExists(path string) bool {
 
 // GetRepositories returns mapping of image ID to name
 func (e *explorer) GetRepositories(ctx context.Context) (map[string]string, error) {
-	repositoriesdir := filepath.Join(e.root, repositoriesDirName)
+	repositoriesdir := filepath.Join(e.imageroot, repositoriesDirName)
 	if !fileExists(repositoriesdir) {
 		return nil, fmt.Errorf("image repository directory %s does not exist", repositoriesdir)
 	}
@@ -801,8 +849,15 @@ func convertToContainerExplorerContainer(config ConfigFile) explorers.Container 
 		status = "STOPPED"
 	}
 
+	var containerName string
+	if strings.HasPrefix(config.Name, "/") {
+		containerName = strings.Replace(config.Name, "/", "", 1)
+	}
+
 	return explorers.Container{
-		Hostname:      config.Config.Hostname,
+		Name: containerName,
+		//		Hostname:      config.Config.Hostname,
+		Hostname:      containerName,
 		ProcessID:     int(config.State.Pid),
 		ContainerType: "docker",
 		Container: containers.Container{

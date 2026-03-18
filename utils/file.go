@@ -41,8 +41,13 @@ func PathExists(path string) (bool, error) {
 	return false, err
 }
 
+func PathExistsV2(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
 const (
-	charset       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 )
 
 var seededRand *rand.Rand = rand.New(

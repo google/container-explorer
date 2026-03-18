@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -93,4 +94,58 @@ func GetFileInfo(info os.FileInfo, path string, diffDir string) (*FileInfo, erro
 	}
 
 	return &diffFileInfo, nil
+}
+
+// ScanDiffDirectory identifies added or modified files in the diff directory
+func ScanDiffDirectory(diffDir string) (addedOrModified []FileInfo, inaccessibleFiles []FileInfo, err error) {
+	err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if info != nil {
+				if fileinfo, err := GetFileInfo(info, path, diffDir); err == nil {
+					inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
+				}
+			}
+
+			return nil // Continue walking despite the error
+		}
+		if !info.IsDir() {
+			fileinfo, err := GetFileInfo(info, path, diffDir)
+			if err != nil {
+				return err
+			}
+
+			// Check if the file is a whiteout files
+			if info.Mode()&os.ModeCharDevice != 0 {
+				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+					rdev := stat.Rdev
+
+					// Extract major and minor device numbers
+					major := (rdev >> 8) & 0xfff
+					minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
+
+					if major == 0 && minor == 0 {
+						// This is a whiteout file
+						inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
+
+						return nil
+					}
+				}
+			}
+
+			// Check if the file is not a symbolic link
+			if info.Mode()&os.ModeSymlink == 0 {
+				// Check if the file has executable permissions
+				mode := info.Mode().Perm()
+				if mode&0111 != 0 {
+					// The file is executable by owner, group, or others
+					fileinfo.FileType = "executable"
+				}
+			}
+
+			addedOrModified = append(addedOrModified, *fileinfo)
+		}
+		return nil
+	})
+
+	return
 }

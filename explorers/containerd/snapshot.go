@@ -56,7 +56,7 @@ type snapshotStore struct {
 // Snapshot path in snapshot database: metadata.db/v1/snapshots/<snapshot key>
 //   - id - Snapshot file system ID i.e. /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/<id>/fs
 //   - kind - ACTIVE vs COMMITTED
-func NewSnaptshotStore(root string, layercache string, db *bolt.DB, sdb *bolt.DB) *snapshotStore {
+func NewSnapshotStore(root string, layercache string, db *bolt.DB, sdb *bolt.DB) *snapshotStore {
 	return &snapshotStore{
 		root:       root,
 		layercache: layercache,
@@ -101,9 +101,10 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 			return ssbkt.ForEach(func(k1, v1 []byte) error {
 				var (
 					skinfo = explorers.SnapshotKeyInfo{
-						Namespace:   namespace,
-						Snapshotter: string(k),
-						Key:         string(k1),
+						ContainerType: "containerd",
+						Namespace:     namespace,
+						Snapshotter:   string(k),
+						Key:           string(k1),
 					}
 
 					// snapshot key bucket that contains information about a

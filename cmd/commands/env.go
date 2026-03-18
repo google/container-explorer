@@ -23,180 +23,89 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/containerd/containerd/namespaces"
 	"github.com/google/container-explorer/explorers"
-	"github.com/google/container-explorer/explorers/containerd"
-	"github.com/google/container-explorer/explorers/docker"
 	"github.com/urfave/cli"
 
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	containerdRootDir = "/var/lib/containerd"
-	dockerRootDir     = "/var/lib/docker"
+	defaultContainerdRootDir = "/var/lib/containerd"
+	defaultDockerRootDir     = "/var/lib/docker"
 )
 
-// explorerEnvironment returns a ContainerExplorer interface.
-// Containers managed using containerd and docker implement ContainerExplorer
-// interface.
-func explorerEnvironment(clictx *cli.Context) (context.Context, explorers.ContainerExplorer, func(), error) {
-	ctx, cancel := context.WithCancel(context.Background())
+// parseRuntimeConfig parses container explorer runtime configuration and returns as a map.
+func parseRuntimeConfig(clictx *cli.Context) (context.Context, map[string]interface{}, error) {
+	ctx := context.Background()
 
 	imageroot := clictx.GlobalString("image-root")
 	containerdroot := clictx.GlobalString("containerd-root")
 	dockerroot := clictx.GlobalString("docker-root")
-	metadatafile := clictx.GlobalString("metadata-file")
-	snapshotfile := clictx.GlobalString("snapshot-metadata-file")
 	layercache := clictx.GlobalString("layer-cache")
 
+	// Exit if image and container root directories are empty
+	if imageroot == "" && containerdroot == "" && dockerroot == "" {
+		fmt.Printf("Missing required argument. Use --image-root or --containerd-root or --docker-root\n")
+		os.Exit(1)
+	}
+
 	// Read support container data if provided using global switch.
-	var sc *explorers.SupportContainer
-	if clictx.GlobalString("support-container-data") != "" {
-		var err error
-		sc, err = explorers.NewSupportContainer(clictx.GlobalString("support-container-data"))
-		if err != nil {
-			log.Errorf("getting new support container: %v", err)
-		}
+	supportContainerFile := clictx.GlobalString("support-container-data")
+	sc, err := explorers.NewSupportContainer(supportContainerFile)
+	if err != nil {
+		log.Errorf("getting new support container: %v", err)
 	}
 
 	// Handle docker managed containers.
 	//
-	// Use the global flag --docker-managed to specify container
-	// managed using docker. This includes Kubernetes containers
-	// managed using docker.
-	if clictx.GlobalBool("docker-managed") {
-		if dockerroot == "" && imageroot == "" {
-			fmt.Printf("Missing required argument. Use --image-root or --docker-root\n")
-			os.Exit(1)
+	// This includes Kubernetes containers managed using docker.
+	if dockerroot == "" {
+		if imageroot != "" {
+			dockerroot = filepath.Join(imageroot, strings.Replace(defaultDockerRootDir, "/", "", 1))
+		} else if containerdroot != "" {
+			parentDir := filepath.Dir(strings.TrimSuffix(containerdroot, "/"))
+			dockerroot = filepath.Join(parentDir, "docker")
 		}
-
-		if imageroot != "" && dockerroot == "" {
-			dockerroot = filepath.Join(
-				imageroot,
-				strings.Replace(dockerRootDir, "/", "", 1),
-			)
-		}
-
-		log.WithFields(log.Fields{
-			"imageroot":      imageroot,
-			"containerdroot": containerdroot,
-			"dockerroot":     dockerroot,
-			"manifestfile":   metadatafile,
-			"snapshotfile":   snapshotfile,
-			"sc":             &sc,
-		}).Debug("docker container environment")
-
-		de, _ := docker.NewExplorer(dockerroot, containerdroot, metadatafile, snapshotfile, sc)
-		return ctx, de, func() {
-			cancel()
-		}, nil
-	}
-
-	// Handle containerd managed containers.
-	//
-	// The default is containerd managed containers. This includes
-	// Kubernetes managed containers.
-	if containerdroot == "" && imageroot == "" {
-		fmt.Printf("Missing required arguments. Use --image-root or --containerd-root\n")
-		os.Exit(1)
-	}
-
-	if imageroot != "" && containerdroot == "" {
-		containerdroot = filepath.Join(
-			imageroot,
-			strings.Replace(containerdRootDir, "/", "", 1),
-		)
-	}
-
-	if metadatafile == "" {
-		metadatafile = filepath.Join(containerdroot, "io.containerd.metadata.v1.bolt", "meta.db")
 	}
 
 	log.WithFields(log.Fields{
 		"imageroot":      imageroot,
 		"containerdroot": containerdroot,
 		"dockerroot":     dockerroot,
-		"manifestfile":   metadatafile,
-		"snapshotfile":   snapshotfile,
+		"sc":             &sc,
+	}).Debug("docker container environment")
+
+	// Handle containerd managed containers.
+	//
+	// The default is containerd managed containers. This includes
+	// Kubernetes managed containers.
+	if containerdroot == "" {
+		if imageroot != "" {
+			containerdroot = filepath.Join(imageroot, strings.Replace(defaultContainerdRootDir, "/", "", 1))
+		} else if dockerroot != "" {
+			parentDir := filepath.Dir(strings.TrimSuffix(dockerroot, "/"))
+			containerdroot = filepath.Join(parentDir, "containerd")
+		}
+	}
+
+	log.WithFields(log.Fields{
+		"imageroot":      imageroot,
+		"containerdroot": containerdroot,
+		"dockerroot":     dockerroot,
 	}).Debug("containerd container environment")
 
 	if !clictx.GlobalBool("use-layer-cache") {
 		layercache = ""
 	}
-	cde, err := containerd.NewExplorer(imageroot, containerdroot, metadatafile, snapshotfile, layercache, sc)
-	if err != nil {
-		return ctx, nil, func() { cancel() }, err
-	}
-	return ctx, cde, func() {
-		cancel()
-	}, nil
-}
-
-func parseRuntimeConfig(clictx *cli.Context) (context.Context, map[string]interface{}, error) {
-	// Global options
-	namespace := clictx.GlobalString("namespace")
-	imageRootDir := clictx.GlobalString("image-root")
-	containerdRootDir := clictx.GlobalString("containerd-root")
-	dockerRootDir := clictx.GlobalString("docker-root")
-	metadataFile := clictx.GlobalString("metadata-file")
-	snapshotFile := clictx.GlobalString("snapshot-metadata-file")
-	layerCache := clictx.GlobalString("layer-cache")
-	useLayerCache := clictx.GlobalBool("use-layer-cache")
-	supportDataFile := clictx.GlobalString("support-container-data")
-
-	ctx := context.Background()
-	ctx = namespaces.WithNamespace(ctx, namespace)
-
-	if imageRootDir == "" && containerdRootDir == "" && dockerRootDir == "" {
-		return ctx, nil, fmt.Errorf("Missing required arguments. Use --image-root, --containerd-root or --docker-root")
-	}
-
-	if containerdRootDir == "" && imageRootDir != "" {
-		 containerdRootDir = filepath.Join(imageRootDir, "var", "lib", "containerd")
-	}
-
-	if dockerRootDir == "" && imageRootDir != "" {
-		dockerRootDir = filepath.Join(imageRootDir, "var", "lib", "docker")
-	}
-
-	if metadataFile == "" {
-		metadataFile = filepath.Join(containerdRootDir, "io.containerd.metadata.v1.bolt", "meta.db")
-	}
-
-	if !useLayerCache {
-		layerCache = ""
-	}
-
-	log.WithFields(log.Fields{
-		"imageRootDir":      imageRootDir,
-		"containerdRootDir": containerdRootDir,
-		"dockerRootDir":     dockerRootDir,
-		"metadataFile":   metadataFile,
-		"snapshotFile":   snapshotFile,
-		"layerCache":     layerCache,
-		"useLayerCache":  useLayerCache,
-		"supportDataFile": supportDataFile,
-	}).Debug("container-explorer runtime configuration settings")
 
 	runtimeConfig := make(map[string]interface{})
-	runtimeConfig["namespace"] = namespace
-	runtimeConfig["imageRootDir"] = imageRootDir
-	runtimeConfig["containerdRootDir"] = containerdRootDir
-	runtimeConfig["dockerRootDir"] = dockerRootDir
-	runtimeConfig["metadataFile"] = metadataFile
-	runtimeConfig["snapshotFile"] = snapshotFile
-	runtimeConfig["layerCache"] = layerCache
-
-	var err error
-	var sc *explorers.SupportContainer
-	if supportDataFile != "" {
-		sc, err = explorers.NewSupportContainer(clictx.GlobalString("support-container-data"))
-		if err != nil {
-			log.Errorf("getting new support container: %v", err)
-		}
-	}
-	runtimeConfig["supportContainer"] = sc
+	runtimeConfig["imageRootDir"] = imageroot
+	runtimeConfig["containerdRootDir"] = containerdroot
+	runtimeConfig["dockerRootDir"] = dockerroot
+	runtimeConfig["podmanRootDir"] = ""
+	runtimeConfig["layercache"] = layercache
+	runtimeConfig["supportContainerData"] = sc
 
 	return ctx, runtimeConfig, nil
 }
+

@@ -16,11 +16,15 @@ limitations under the License.
 
 package explorers
 
-import "github.com/containerd/containerd/containers"
+import (
+	"github.com/containerd/containerd/containers"
+	// "github.com/containerd/typeurl/v2"
+)
 
 // Container provides information about a container.
 type Container struct {
 	Namespace        string
+	Name             string
 	Hostname         string
 	ImageBase        string
 	SupportContainer bool
@@ -30,11 +34,29 @@ type Container struct {
 
 	// containerd specific fields
 	containers.Container
-
+	/*
+		ID          string
+		Labels      map[string]string
+		Image       string
+		Runtime     RuntimeInfo
+		Spec        typeurl.Any
+		Snapshotter string
+		CreatedAt   time.Time
+		UpdatedAt   time.Time
+		Extensions  map[string]typeurl.Any
+		SandboxID   string
+	*/
 	// docker specific fields
 	Running      bool
 	ExposedPorts []string
 }
+
+/*
+type RuntimeInfo struct {
+	Name    string
+	Options typeurl.Any
+}
+*/
 
 // Drift provides information about container drift.
 type Drift struct {

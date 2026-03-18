@@ -16,7 +16,13 @@ limitations under the License.
 
 package commands
 
-import "strings"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	log "github.com/sirupsen/logrus"
+)
 
 func getFilterMap(filter string) map[string]string {
 	if filter == "" {
@@ -33,3 +39,23 @@ func getFilterMap(filter string) map[string]string {
 	}
 	return filterMap
 }
+
+func printAsJSON(v interface{}) {
+	b, err := json.MarshalIndent(v, "", " ")
+	if err != nil {
+		log.Error("error marshaling to JSON", err)
+		return
+	}
+
+	fmt.Println(string(b))
+}
+
+func printAsJSONLine(v interface{}) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		log.Error("error marshaling to json_line", err)
+		return
+	}
+	fmt.Println(string(b))
+}
+

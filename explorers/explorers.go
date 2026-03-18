@@ -70,4 +70,7 @@ type ContainerExplorer interface {
 	//
 	// SnapshotRoot is required for the containers managed using containerd.
 	SnapshotRoot(snapshotter string) string
+
+	//GetContainerByID returns ContainerExplorer for the ID or nil
+	GetContainerByID(ctx context.Context, containerid string) (*Container, error)
 }

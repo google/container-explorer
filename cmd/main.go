@@ -76,14 +76,6 @@ func main() {
 			Name:  "image-root, i",
 			Usage: "specify mount point for a disk image",
 		},
-		cli.StringFlag{
-			Name:  "metadata-file, m",
-			Usage: "specify the path to containerd metadata file i.e. meta.db",
-		},
-		cli.StringFlag{
-			Name:  "snapshot-metadata-file, s",
-			Usage: "specify the path to containerd snapshot metadata file i.e. metadata.db.",
-		},
 		cli.BoolFlag{
 			Name:  "use-layer-cache",
 			Usage: "attempt to use cached layers where layers are symlinks",
@@ -98,13 +90,9 @@ func main() {
 			Usage: "specify container namespace",
 			Value: "default",
 		},
-		cli.BoolFlag{
-			Name:  "docker-managed",
-			Usage: "specify docker manages standalone or Kubernetes containers",
-		},
 		cli.StringFlag{
 			Name:  "docker-root",
-			Usage: "specify docker root directory. This is only used with flag --docker-managed",
+			Usage: "specify docker root directory",
 		},
 		cli.StringFlag{
 			Name:  "support-container-data",

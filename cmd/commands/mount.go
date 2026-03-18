@@ -17,10 +17,15 @@ limitations under the License.
 package commands
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
-	"github.com/containerd/containerd/namespaces"
+	"github.com/google/container-explorer/explorers"
+	"github.com/google/container-explorer/explorers/containerd"
+	"github.com/google/container-explorer/explorers/docker"
+	"github.com/google/container-explorer/explorers/podman"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -41,29 +46,68 @@ var MountCommand = cli.Command{
 			return fmt.Errorf("container id and mount point are required")
 		}
 
-		namespace := clictx.GlobalString("namespace")
 		containerid := clictx.Args().First()
 		mountpoint := clictx.Args().Get(1)
 
-		log.WithFields(log.Fields{
-			"namespace":   namespace,
-			"containerid": containerid,
-			"mountpoint":  mountpoint,
-		}).Debug("user provided mount options")
-
-		ctx, exp, cancel, err := explorerEnvironment(clictx)
+		ctx, runtimeConfig, err := parseRuntimeConfig(clictx)
 		if err != nil {
-			return err
-		}
-		defer cancel()
-
-		ctx = namespaces.WithNamespace(ctx, namespace)
-
-		if err := exp.MountContainer(ctx, containerid, mountpoint); err != nil {
-			return err
+			log.WithField("message", err).Error("setting container explorer environment")
+			return nil
 		}
 
-		// default return
+		imageRootDir := runtimeConfig["imageRootDir"].(string)
+		containerdRootDir := runtimeConfig["containerdRootDir"].(string)
+		dockerRootDir := runtimeConfig["dockerRootDir"].(string)
+		layercache := runtimeConfig["layercache"].(string)
+		sc := runtimeConfig["supportContainerData"].(*explorers.SupportContainer)
+
+		dkrxplr, err := docker.NewExplorer(imageRootDir, containerdRootDir, dockerRootDir)
+		if err != nil {
+			log.Error("unable to get docker explorer")
+		} else {
+			matched, err := mountContainer(ctx, dkrxplr, containerid, mountpoint)
+			if matched {
+				return err
+			}
+		}
+
+		pmxplr, err := podman.NewExplorer(imageRootDir)
+		if err != nil {
+			log.Error("unable to get podman explorer")
+		} else {
+			matched, err := mountContainer(ctx, pmxplr, containerid, mountpoint)
+			if matched {
+				return err
+			}
+		}
+
+		ctrxplr, err := containerd.NewExplorer(imageRootDir, containerdRootDir, dockerRootDir, layercache, sc)
+		if err != nil {
+			log.Error("unable to get containerd explorer")
+		} else {
+			matched, err := mountContainer(ctx, ctrxplr, containerid, mountpoint)
+			if matched {
+				return err
+			}
+		}
+
 		return nil
 	},
+}
+
+func mountContainer(ctx context.Context, xplr explorers.ContainerExplorer, containerid string, mountpoint string) (bool, error) {
+	container, err := xplr.GetContainerByID(ctx, containerid)
+	if err != nil {
+		return false, err
+	}
+
+	if container == nil {
+		return false, fmt.Errorf("container is nil")
+	}
+
+	if err := xplr.MountContainer(ctx, containerid, mountpoint); err != nil {
+		return true, fmt.Errorf("mounting %s: %w", containerid, err)
+	}
+
+	return true, nil
 }
