@@ -291,7 +291,7 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 				if storageName == storageOverlay2 {
 					imageContent, err := readImageContent(storageName, storageDir, image.Target.Digest)
 					if err != nil {
-						log.Error("reading image content file ", err)
+						log.Errorf("reading image content file: %v", err)
 					} else {
 						image.CreatedAt = imageContent.Created
 					}
@@ -448,16 +448,16 @@ func (e *explorer) mountOverlay2Container(ctx context.Context, container ConfigF
 	cmd := exec.Command("mount", mountargs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Errorf("running mount command %v", mountargs)
+		log.Errorf("running mount command: %v", mountargs)
 
 		if strings.Contains(err.Error(), " 32") {
 			if string(out) != "" {
-				return fmt.Errorf("invalid lowerdir path %v. output: %s", err, strings.TrimSpace(string(out)))
+				return fmt.Errorf("invalid lowerdir path %v; output: %s", err, strings.TrimSpace(string(out)))
 			}
-			return fmt.Errorf("invalid lowerdir path %v. Use --debug to view lowerdir path", err)
+			return fmt.Errorf("invalid lowerdir path %v: use --debug to view lowerdir path", err)
 		}
 		if string(out) != "" {
-			return fmt.Errorf("executing mount command %v. output: %s", err, strings.TrimSpace(string(out)))
+			return fmt.Errorf("executing mount command %v; output: %s", err, strings.TrimSpace(string(out)))
 		}
 		return fmt.Errorf("executing mount command %v", err)
 	}
@@ -500,7 +500,7 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 			log.WithFields(log.Fields{
 				"namespace":   cecontainer.Namespace,
 				"containerID": cecontainer.ID,
-			}).Info("skip mounting Kubernetes support container")
+			}).Info("skipping Kubernetes support container")
 			continue
 		}
 
@@ -589,7 +589,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			log.WithFields(log.Fields{
 				"namespace":   cecontainer.Namespace,
 				"containerID": cecontainer.ID,
-			}).Info("skip mounting Kubernetes support container")
+			}).Info("skipping Kubernetes support container")
 			continue
 		}
 
@@ -764,7 +764,7 @@ func (e *explorer) GetRepositories(ctx context.Context) (map[string]string, erro
 
 	storageDirs, err := filepath.Glob(filepath.Join(repositoriesDir, "*"))
 	if err != nil {
-		return nil, fmt.Errorf("listing storage directories. %v", err)
+		return nil, fmt.Errorf("listing storage directories: %v", err)
 	}
 
 	for _, storageDir := range storageDirs {
@@ -780,7 +780,7 @@ func (e *explorer) GetRepositories(ctx context.Context) (map[string]string, erro
 		repositoriesFile := filepath.Join(storageDir, repositoriesFileName)
 		data, err := os.ReadFile(repositoriesFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed reading repositories file %s. %v", repositoriesFile, err)
+			return nil, fmt.Errorf("failed reading repositories file %s: %v", repositoriesFile, err)
 		}
 
 		var r ImageRepository

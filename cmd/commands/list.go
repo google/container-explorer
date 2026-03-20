@@ -264,7 +264,7 @@ var listContainers = cli.Command{
 					"namespace":        container.Namespace,
 					"containerID":      container.ID,
 					"supportcontainer": container.SupportContainer,
-				}).Info("skip support container")
+				}).Info("skipping support container")
 
 				continue
 			}

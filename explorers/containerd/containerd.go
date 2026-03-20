@@ -304,7 +304,7 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 // ListTasks returns container tasks status
 func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
 	if e.imageRoot == "" {
-		log.Error("image-root is empty. Unable to list tasks.")
+		log.Error("image-root is empty: unable to list tasks")
 		return nil, nil
 	}
 
@@ -389,7 +389,7 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 	if err != nil {
 		// Only print the error message.
 		// The default return should contain status UNKNOWN
-		log.WithField("containerID", ctr.ID).Error("failed getting container status for container: ", err)
+		log.WithField("containerID", ctr.ID).Errorf("failed getting container status for container: %v", err)
 	}
 
 	// Get container process ID
@@ -562,7 +562,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerID string, mount
 		mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", upperdir, lowerdir)
 		mountArgs = []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
 	} else {
-		log.Error("Unsupported snapshotter ", container.Snapshotter)
+		log.Errorf("unsupported snapshotter: %s", container.Snapshotter)
 	}
 
 	log.Debug("container mount command ", mountArgs)
@@ -570,17 +570,15 @@ func (e *explorer) MountContainer(ctx context.Context, containerID string, mount
 	cmd := exec.Command("mount", mountArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Errorf("running mount command %v", err)
+		log.Errorf("running mount command: %v", err)
 
-		if strings.Contains(err.Error(), " 32") {
-			log.Error("invalid overlayfs lowerdir path. Use --debug to view lowerdir path")
-		}
+			log.Error("invalid overlayfs lowerdir path: use --debug to view lowerdir path")
 
 		return err
 	}
 
 	if string(out) != "" {
-		log.Info("mount command output ", string(out))
+		log.Infof("mount command output: %s", string(out))
 	}
 
 	// default
@@ -602,7 +600,7 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 			log.WithFields(log.Fields{
 				"namespace":   ctr.Namespace,
 				"containerID": ctr.ID,
-			}).Info("skip mounting Kubernetes containers")
+			}).Info("skipping Kubernetes containers")
 
 			continue
 		}
@@ -685,7 +683,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			log.WithFields(log.Fields{
 				"namespace":   ctr.Namespace,
 				"containerID": ctr.ID,
-			}).Info("skip mounting Kubernetes containers")
+			}).Info("skipping Kubernetes containers")
 
 			continue
 		}

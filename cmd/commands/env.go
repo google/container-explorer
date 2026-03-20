@@ -45,7 +45,7 @@ func parseRuntimeConfig(clictx *cli.Context) (context.Context, map[string]any, e
 
 	// Exit if image and container root directories are empty
 	if imageRoot == "" && containerdRoot == "" && dockerRoot == "" {
-		fmt.Printf("Missing required argument. Use --image-root or --containerd-root or --docker-root\n")
+		fmt.Printf("missing required argument: use --image-root, --containerd-root, or --docker-root\n")
 		os.Exit(1)
 	}
 

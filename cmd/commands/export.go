@@ -234,7 +234,7 @@ var ExportAllCommand = cli.Command{
 		} else {
 			if containerEngine == "all" || strings.ToLower(containerEngine) == "docker" {
 				if err := dkrxplr.ExportAllContainers(ctx, outputDir, exportOptions, filterMap, exportSupportContainers); err != nil {
-					log.Errorf("exporting all Docker containers as image or archive: %v", err)
+					log.Errorf("exporting all docker containers as image or archive: %v", err)
 				}
 			}
 		}
