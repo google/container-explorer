@@ -46,7 +46,7 @@ var MountCommand = cli.Command{
 			return fmt.Errorf("container id and mount point are required")
 		}
 
-		containerid := clictx.Args().First()
+		containerID := clictx.Args().First()
 		mountpoint := clictx.Args().Get(1)
 
 		ctx, runtimeConfig, err := parseRuntimeConfig(clictx)
@@ -65,7 +65,7 @@ var MountCommand = cli.Command{
 		if err != nil {
 			log.Error("unable to get docker explorer")
 		} else {
-			matched, err := mountContainer(ctx, dkrxplr, containerid, mountpoint)
+			matched, err := mountContainer(ctx, dkrxplr, containerID, mountpoint)
 			if matched {
 				return err
 			}
@@ -75,7 +75,7 @@ var MountCommand = cli.Command{
 		if err != nil {
 			log.Error("unable to get podman explorer")
 		} else {
-			matched, err := mountContainer(ctx, pmxplr, containerid, mountpoint)
+			matched, err := mountContainer(ctx, pmxplr, containerID, mountpoint)
 			if matched {
 				return err
 			}
@@ -85,7 +85,7 @@ var MountCommand = cli.Command{
 		if err != nil {
 			log.Error("unable to get containerd explorer")
 		} else {
-			matched, err := mountContainer(ctx, ctrxplr, containerid, mountpoint)
+			matched, err := mountContainer(ctx, ctrxplr, containerID, mountpoint)
 			if matched {
 				return err
 			}
@@ -95,8 +95,8 @@ var MountCommand = cli.Command{
 	},
 }
 
-func mountContainer(ctx context.Context, xplr explorers.ContainerExplorer, containerid string, mountpoint string) (bool, error) {
-	container, err := xplr.GetContainerByID(ctx, containerid)
+func mountContainer(ctx context.Context, xplr explorers.ContainerExplorer, containerID string, mountpoint string) (bool, error) {
+	container, err := xplr.GetContainerByID(ctx, containerID)
 	if err != nil {
 		return false, err
 	}
@@ -105,8 +105,8 @@ func mountContainer(ctx context.Context, xplr explorers.ContainerExplorer, conta
 		return false, fmt.Errorf("container is nil")
 	}
 
-	if err := xplr.MountContainer(ctx, containerid, mountpoint); err != nil {
-		return true, fmt.Errorf("mounting %s: %w", containerid, err)
+	if err := xplr.MountContainer(ctx, containerID, mountpoint); err != nil {
+		return true, fmt.Errorf("mounting %s: %w", containerID, err)
 	}
 
 	return true, nil

@@ -35,7 +35,7 @@ type ContainerExplorer interface {
 	ExportContainer(ctx context.Context, containerID string, outputDir string, exportOption map[string]bool) error
 
 	// InfoContainer returns container internal information
-	InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error)
+	InfoContainer(ctx context.Context, containerID string, spec bool) (any, error)
 
 	// ListContainers returns all the containers in all the namespaces.
 	//
@@ -63,7 +63,7 @@ type ContainerExplorer interface {
 	MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error
 
 	// MountContainer mounts a container to the specified path
-	MountContainer(ctx context.Context, containerid string, mountpoint string) error
+	MountContainer(ctx context.Context, containerID string, mountpoint string) error
 
 	// SnapshotRoot returns the directory containing snapshots and snapshot
 	// database i.e. metadata.db
@@ -72,5 +72,5 @@ type ContainerExplorer interface {
 	SnapshotRoot(snapshotter string) string
 
 	//GetContainerByID returns ContainerExplorer for the ID or nil
-	GetContainerByID(ctx context.Context, containerid string) (*Container, error)
+	GetContainerByID(ctx context.Context, containerID string) (*Container, error)
 }

@@ -57,14 +57,14 @@ func NewExplorer(imageroot string) (explorers.ContainerExplorer, error) {
 }
 
 // GetContainerByID returns Container for a given container ID or container name.
-func (e *explorer) GetContainerByID(ctx context.Context, containerid string) (*explorers.Container, error) {
+func (e *explorer) GetContainerByID(ctx context.Context, containerID string) (*explorers.Container, error) {
 	containers, err := e.ListContainers(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, container := range containers {
-		if container.ID == containerid || container.Name == containerid {
+		if container.ID == containerID || container.Name == containerID {
 			return &container, nil
 		}
 	}
@@ -83,7 +83,7 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 }
 
 // SnapshotRoot returns snapshot root directory.
-func (e *explorer) SnapshotRoot(shapshotter string) string {
+func (e *explorer) SnapshotRoot(snapshotter string) string {
 	return ""
 }
 
@@ -245,12 +245,12 @@ func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
 }
 
 // InfoContainer returns container information.
-func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
+func (e *explorer) InfoContainer(ctx context.Context, containerID string, spec bool) (any, error) {
 	return nil, nil
 }
 
 // MountContainer mount podman container for a given ID or name.
-func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
+func (e *explorer) MountContainer(ctx context.Context, containerID string, mountpoint string) error {
 	podmanRootDirs, err := e.getPodmanRootDirs()
 	if err != nil {
 		return fmt.Errorf("getting podman directories: %w", err)
@@ -264,8 +264,8 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 		}
 
 		for _, config := range configs {
-			if config.ID == containerid || config.Names[0] == containerid {
-				return e.mountContainer(ctx, podmanRootDir, containerid, config.Layer, mountpoint)
+			if config.ID == containerID || config.Names[0] == containerID {
+				return e.mountContainer(ctx, podmanRootDir, containerID, config.Layer, mountpoint)
 			}
 		}
 	}
@@ -373,8 +373,8 @@ func (e *explorer) Close() error {
 }
 
 func (e *explorer) getUserHomeDirs() ([]string, error) {
-	passwd_file := filepath.Join(e.imageroot, "etc", "passwd")
-	data, err := os.ReadFile(passwd_file)
+	passwdFile := filepath.Join(e.imageroot, "etc", "passwd")
+	data, err := os.ReadFile(passwdFile)
 	if err != nil {
 		return nil, fmt.Errorf("error reading passwd file: %v", err)
 	}
@@ -400,7 +400,7 @@ func (e *explorer) getPodmanRootDirs() ([]string, error) {
 	// Podman containers in user directories
 	usernames, err := e.getUserHomeDirs()
 	if err != nil {
-		log.WithField("imageRootDir", e.imageroot).Error("listing user home directories")
+		log.WithField("imageRootDir", e.imageroot).Info("listing user home directories")
 	} else {
 		for _, username := range usernames {
 			podmanroot := filepath.Join(e.imageroot, strings.Replace(username, "/", "", 1), defaultUserPodmanDir)

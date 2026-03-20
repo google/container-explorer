@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	VERSION = "0.4.0"
+	VERSION = "0.6.0"
 )
 
 func init() {
@@ -84,11 +84,6 @@ func main() {
 			Name:  "layer-cache",
 			Usage: "cached layer folder within the snapshot root",
 			Value: "layers",
-		},
-		cli.StringFlag{
-			Name:  "namespace, n",
-			Usage: "specify container namespace",
-			Value: "default",
 		},
 		cli.StringFlag{
 			Name:  "docker-root",

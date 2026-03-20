@@ -31,12 +31,12 @@ type State struct {
 	Error             string
 	StartedAt         time.Time
 	FinishedAt        time.Time
-	Health            interface{}
+	Health            any
 }
 
 // Config holds docker runtime config
 type Config struct {
-	ExposedPorts map[string]interface{}
+	ExposedPorts map[string]any
 	Hostname     string
 	Domainname   string
 	User         string
@@ -49,18 +49,18 @@ type Config struct {
 	Env          []string
 	Cmd          []string
 	Image        string
-	Volumes      interface{}
-	WorkingDir   interface{}
-	EntryPoint   interface{}
-	OnBuild      interface{}
+	Volumes      any
+	WorkingDir   any
+	EntryPoint   any
+	OnBuild      any
 	Labels       map[string]string
 }
 
 // Bridge represents docker networks bridge structure
 type Bridge struct {
-	IPAMConfig        interface{}
-	Links             interface{}
-	Aliases           interface{}
+	IPAMConfig        any
+	Links             any
+	Aliases           any
 	NetworkID         string
 	EndpointID        string
 	Gateway           string
@@ -80,26 +80,26 @@ type NetworkSettings struct {
 	HairpinMode            bool
 	LinkLocalIPv6Address   string
 	LinkLocalIPv6PrefixLen int
-	Networks               map[string]interface{}
-	Service                map[string]interface{}
-	Ports                  map[string]interface{}
+	Networks               map[string]any
+	Service                map[string]any
+	Ports                  map[string]any
 	SandboxKey             string
-	SecondaryIPAddresses   interface{}
-	SecondaryIPv6Addresses interface{}
+	SecondaryIPAddresses   any
+	SecondaryIPv6Addresses any
 	IsAnonymousEndpoint    bool
 	HasSwarmEndpoint       bool
 }
 
 // ConfigFile represents docker config.v2.json structure
 type ConfigFile struct {
-	StreamConfig           map[string]interface{}
+	StreamConfig           map[string]any
 	State                  State
 	ID                     string
 	Created                time.Time
 	Managed                bool
 	Path                   string
 	Args                   []string
-	ContainerConfig        map[string]interface{}
+	ContainerConfig        map[string]any
 	Config                 Config
 	Image                  string
 	NetworkSettings        NetworkSettings
@@ -111,8 +111,8 @@ type ConfigFile struct {
 	RestartCount           int64
 	HasBeenRestartedBefore bool
 	HasBeenManuallyStopped bool
-	MountPoints            map[string]interface{}
-	SecretReferences       interface{}
+	MountPoints            map[string]any
+	SecretReferences       any
 	AppArmorProfile        string
 	HostnamePath           string
 	HostsPath              string

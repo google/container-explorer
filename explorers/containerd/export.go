@@ -47,7 +47,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 		if err != nil {
 			log.WithFields(log.Fields{
 				"namespace": containerNamespace,
-				"error": err,
+				"error":     err,
 			}).Warnf("error listing containers in namespace")
 
 			continue
@@ -66,7 +66,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 		if !containerExists {
 			log.WithFields(log.Fields{
 				"containerID": containerID,
-				"namespace": containerNamespace,
+				"namespace":   containerNamespace,
 			}).Debug("no container in namespace")
 
 			continue
@@ -74,9 +74,9 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 
 		// Continue the following if a matching containerID is found.
 		log.WithFields(log.Fields{
-			"containerID": targetContainer.ID,
-			"name": targetContainer.Runtime.Name,
-			"namespace": targetContainer.Namespace,
+			"containerID":   targetContainer.ID,
+			"name":          targetContainer.Runtime.Name,
+			"namespace":     targetContainer.Namespace,
 			"containerType": targetContainer.ContainerType,
 		}).Info("container found")
 
@@ -163,29 +163,29 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 		if err != nil {
 			log.WithFields(log.Fields{
 				"namespace": containerNamespace,
-				"error": err,
+				"error":     err,
 			}).Warnf("error listing containers in namespace")
 			continue
 		}
 
 		log.WithFields(log.Fields{
-			"namespace": containerNamespace,
+			"namespace":       containerNamespace,
 			"container_count": len(containers),
 		}).Debug("containerd containers in namespace")
 
 		for _, container := range containers {
 			log.WithFields(log.Fields{
-				"containerID": container.ID,
-				"name": container.Runtime.Name,
-				"namespace": container.Namespace,
+				"containerID":   container.ID,
+				"name":          container.Runtime.Name,
+				"namespace":     container.Namespace,
 				"containerType": container.ContainerType,
 			}).Debug("processing containerd container for export")
 
-			if !exportSupportContainers && container.SupportContainer{
+			if !exportSupportContainers && container.SupportContainer {
 				log.WithFields(log.Fields{
-					"containerID": container.ID,
-					"name": container.Runtime.Name,
-					"namespace": container.Namespace,
+					"containerID":   container.ID,
+					"name":          container.Runtime.Name,
+					"namespace":     container.Namespace,
 					"containerType": container.ContainerType,
 				}).Debug("skipping Kubernetes support containers")
 				continue
@@ -193,20 +193,20 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 
 			if utils.IncludeContainer(container, filter) {
 				log.WithFields(log.Fields{
-					"containerID": container.ID,
-					"name": container.Runtime.Name,
-					"namespace": container.Namespace,
+					"containerID":   container.ID,
+					"name":          container.Runtime.Name,
+					"namespace":     container.Namespace,
 					"containerType": container.ContainerType,
 				}).Debug("ignoring containerd container for export")
 
 				err := e.ExportContainer(ctx, container.ID, outputDir, exportOption)
 				if err != nil {
 					log.WithFields(log.Fields{
-						"containerID": container.ID,
-						"name": container.Runtime.Name,
-						"namespace": container.Namespace,
+						"containerID":   container.ID,
+						"name":          container.Runtime.Name,
+						"namespace":     container.Namespace,
 						"containerType": container.ContainerType,
-						"error": err,
+						"error":         err,
 					}).Error("error exporting containerd container")
 				}
 			}
@@ -294,7 +294,7 @@ func exportContainerImage(ctx context.Context, containerID string, mountpoint st
 	log.Infof("Created temporary image mount directory: %s", imageMountDir)
 
 	var loopDevice string
-	var imageSuccessfullyMounted bool = false
+	imageSuccessfullyMounted := false
 
 	// Defer cleanup actions in LIFO order (unmount image, detach loop, remove temp dir)
 	defer func() {

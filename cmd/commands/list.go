@@ -262,7 +262,7 @@ var listContainers = cli.Command{
 			if !clictx.Bool("show-support-containers") && container.SupportContainer {
 				log.WithFields(log.Fields{
 					"namespace":        container.Namespace,
-					"containerid":      container.ID,
+					"containerID":      container.ID,
 					"supportcontainer": container.SupportContainer,
 				}).Info("skip support container")
 
@@ -843,7 +843,7 @@ func arrayToString(array []string) string {
 }
 
 // writeOutputFile writes JSON data to specified file.
-func writeOutputFile(v interface{}, outputfile string) {
+func writeOutputFile(v any, outputfile string) {
 	data, _ := json.Marshal(v)
 	os.WriteFile(outputfile, data, 0644)
 }

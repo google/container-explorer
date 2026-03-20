@@ -55,7 +55,7 @@ var infoContainer = cli.Command{
 			return fmt.Errorf("container id is required")
 		}
 
-		containerid := clictx.Args().First()
+		containerID := clictx.Args().First()
 
 		ctx, runtimeConfig, err := parseRuntimeConfig(clictx)
 		if err != nil {
@@ -75,7 +75,7 @@ var infoContainer = cli.Command{
 		if err != nil {
 			log.Error("unable to get docker explorer")
 		} else {
-			matched, info, err := getContainerInfo(ctx, dkrxplr, containerid, spec)
+			matched, info, err := getContainerInfo(ctx, dkrxplr, containerID, spec)
 			if matched {
 				if err != nil {
 					log.Fatal(err)
@@ -89,7 +89,7 @@ var infoContainer = cli.Command{
 		if err != nil {
 			log.Error("unable to get podman explorer")
 		} else {
-			matched, info, err := getContainerInfo(ctx, pmxplr, containerid, spec)
+			matched, info, err := getContainerInfo(ctx, pmxplr, containerID, spec)
 			if matched {
 				if err != nil {
 					log.Fatal(err)
@@ -103,7 +103,7 @@ var infoContainer = cli.Command{
 		if err != nil {
 			log.Error("unable to get containerd explorer")
 		} else {
-			matched, info, err := getContainerInfo(ctx, ctrxplr, containerid, spec)
+			matched, info, err := getContainerInfo(ctx, ctrxplr, containerID, spec)
 			if matched {
 				if err != nil {
 					log.Fatal(err)
@@ -113,13 +113,13 @@ var infoContainer = cli.Command{
 			}
 		}
 
-		log.Errorf("container %s not found", containerid)
+		log.Errorf("container %s not found", containerID)
 		return nil
 	},
 }
 
-func getContainerInfo(ctx context.Context, xplr explorers.ContainerExplorer, containerid string, spec bool) (bool, interface{}, error) {
-	container, err := xplr.GetContainerByID(ctx, containerid)
+func getContainerInfo(ctx context.Context, xplr explorers.ContainerExplorer, containerID string, spec bool) (bool, any, error) {
+	container, err := xplr.GetContainerByID(ctx, containerID)
 	if err != nil {
 		return false, nil, err
 	}
@@ -128,11 +128,10 @@ func getContainerInfo(ctx context.Context, xplr explorers.ContainerExplorer, con
 		return false, nil, fmt.Errorf("container is nil")
 	}
 
-	info, err := xplr.InfoContainer(ctx, containerid, spec)
+	info, err := xplr.InfoContainer(ctx, containerID, spec)
 	if err != nil {
-		return true, nil, fmt.Errorf("getting info for %s: %w", containerid, err)
+		return true, nil, fmt.Errorf("getting info for %s: %w", containerID, err)
 	}
 
 	return true, info, nil
 }
-

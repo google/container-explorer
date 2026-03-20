@@ -137,7 +137,7 @@ var DriftCommand = cli.Command{
 
 		if output == "table" {
 			// Define the header
-			fmt.Fprintf(tw, "CONTAINER ID\tADDED/MODIFIED\tDELETED\n")
+			fmt.Fprintf(tw, "CONTAINER TYPE\tCONTAINER ID\tADDED/MODIFIED\tDELETED\n")
 		}
 
 		for _, drift := range allDrifts {
@@ -164,7 +164,8 @@ var DriftCommand = cli.Command{
 				displayAddedOrModifiedFiles := strings.Join(addedOrModifiedFiles, ", ")
 				displayInaccessibleFiles := strings.Join(inaccessibleFiles, ", ")
 
-				displayValues := fmt.Sprintf("%s\t%s\t%s",
+				displayValues := fmt.Sprintf("%s\t%s\t%s\t%s",
+					drift.ContainerType,
 					drift.ContainerID,
 					displayAddedOrModifiedFiles,
 					displayInaccessibleFiles,

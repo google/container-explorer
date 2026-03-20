@@ -64,7 +64,7 @@ func GenerateRandomString(stringLength int) string {
 
 func GetMountPoint() string {
 	mountSuffix := GenerateRandomString(6)
-	mountPoint := filepath.Join("/", "mnt", mountSuffix)
+	mountPoint := filepath.Join(os.TempDir(), "mnt", mountSuffix)
 	return mountPoint
 }
 

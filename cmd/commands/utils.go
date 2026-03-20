@@ -40,7 +40,7 @@ func getFilterMap(filter string) map[string]string {
 	return filterMap
 }
 
-func printAsJSON(v interface{}) {
+func printAsJSON(v any) {
 	b, err := json.MarshalIndent(v, "", " ")
 	if err != nil {
 		log.Error("error marshaling to JSON", err)
@@ -50,7 +50,7 @@ func printAsJSON(v interface{}) {
 	fmt.Println(string(b))
 }
 
-func printAsJSONLine(v interface{}) {
+func printAsJSONLine(v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		log.Error("error marshaling to json_line", err)
@@ -58,4 +58,3 @@ func printAsJSONLine(v interface{}) {
 	}
 	fmt.Println(string(b))
 }
-

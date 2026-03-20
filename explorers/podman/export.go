@@ -174,7 +174,7 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 					"name":          container.Runtime.Name,
 					"namespace":     container.Namespace,
 					"containerType": container.ContainerType,
-					"error":       err,
+					"error":         err,
 				}).Error("error exporting podman container")
 			}
 		}
@@ -261,7 +261,7 @@ func exportContainerImage(ctx context.Context, containerID string, mountpoint st
 	log.Infof("Created temporary image mount directory: %s", imageMountDir)
 
 	var loopDevice string
-	var imageSuccessfullyMounted bool = false
+	imageSuccessfullyMounted := false
 
 	// Defer cleanup actions in LIFO order (unmount image, detach loop, remove temp dir)
 	defer func() {

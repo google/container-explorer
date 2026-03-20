@@ -47,7 +47,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 		if err != nil {
 			log.WithFields(log.Fields{
 				"namespace": containerNamespace,
-				"error": err,
+				"error":     err,
 			}).Warnf("error listing containers in namespace")
 
 			continue
@@ -66,7 +66,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 		if !containerExists {
 			log.WithFields(log.Fields{
 				"containerID": containerID,
-				"namespace": containerNamespace,
+				"namespace":   containerNamespace,
 			}).Debug("no container in namespace")
 
 			continue
@@ -74,9 +74,9 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 
 		// Continue the following if a matching containerID is found.
 		log.WithFields(log.Fields{
-			"containerID": targetContainer.ID,
-			"name": targetContainer.Runtime.Name,
-			"namespace": targetContainer.Namespace,
+			"containerID":   targetContainer.ID,
+			"name":          targetContainer.Runtime.Name,
+			"namespace":     targetContainer.Namespace,
 			"containerType": targetContainer.ContainerType,
 		}).Info("container found")
 
@@ -163,29 +163,29 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 		if err != nil {
 			log.WithFields(log.Fields{
 				"namespace": containerNamespace,
-				"error": err,
+				"error":     err,
 			}).Warnf("error listing containers in namespace")
 
 			continue
 		}
 		log.WithFields(log.Fields{
-			"namespace": containerNamespace,
-			"container_count": len(containers),
+			"namespace":      containerNamespace,
+			"containerCount": len(containers),
 		}).Debug("Docker containers in namespace")
 
 		for _, container := range containers {
 			log.WithFields(log.Fields{
-				"containerID": container.ID,
-				"name": container.Runtime.Name,
-				"namespace": container.Namespace,
+				"containerID":   container.ID,
+				"name":          container.Runtime.Name,
+				"namespace":     container.Namespace,
 				"containerType": container.ContainerType,
 			}).Debug("processing Docker container for export")
 
-			if !exportSupportContainers && container.SupportContainer{
+			if !exportSupportContainers && container.SupportContainer {
 				log.WithFields(log.Fields{
-					"containerID": container.ID,
-					"name": container.Runtime.Name,
-					"namespace": container.Namespace,
+					"containerID":   container.ID,
+					"name":          container.Runtime.Name,
+					"namespace":     container.Namespace,
 					"containerType": container.ContainerType,
 				}).Debug("skipping Kubernetes support containers")
 				continue
@@ -193,20 +193,20 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 
 			if utils.IncludeContainer(container, filter) {
 				log.WithFields(log.Fields{
-					"containerID": container.ID,
-					"name": container.Runtime.Name,
-					"namespace": container.Namespace,
+					"containerID":   container.ID,
+					"name":          container.Runtime.Name,
+					"namespace":     container.Namespace,
 					"containerType": container.ContainerType,
 				}).Debug("ignoring Docker container for export")
 
 				err := e.ExportContainer(ctx, container.ID, outputDir, exportOption)
 				if err != nil {
 					log.WithFields(log.Fields{
-						"containerID": container.ID,
-						"name": container.Runtime.Name,
-						"namespace": container.Namespace,
+						"containerID":   container.ID,
+						"name":          container.Runtime.Name,
+						"namespace":     container.Namespace,
 						"containerType": container.ContainerType,
-						"error": err,
+						"error":         err,
 					}).Error("error exporting Docker container")
 				}
 			}
@@ -261,12 +261,12 @@ func exportContainerImage(ctx context.Context, containerID string, mountpoint st
 	if err := imgFile.Close(); err != nil {
 		return fmt.Errorf("failed to close image file %s before formatting: %w", imageFilePath, err)
 	}
-	log.Infof("Successfully created and sized image file: %s", imageFilePath)
+	log.Infof("successfully created and sized image file: %s", imageFilePath)
 
 	// 5. Format the image file as ext4
 	log.WithFields(log.Fields{
 		"imageFilePath": imageFilePath,
-	}).Info("Formatting image as ext4...")
+	}).Info("formatting image as ext4...")
 
 	mkfsCmd := exec.CommandContext(ctx, "mkfs.ext4", "-F", "-q", imageFilePath)
 	mkfsOutput, err := mkfsCmd.CombinedOutput()
@@ -282,10 +282,10 @@ func exportContainerImage(ctx context.Context, containerID string, mountpoint st
 	log.WithFields(log.Fields{
 		"imageFilePath": imageFilePath,
 		"output":        string(mkfsOutput),
-	}).Info("Successfully formatted image as ext4")
+	}).Info("successfully formatted image as ext4")
 
 	// 6. Mount the formatted image, copy data, then unmount.
-	log.Infof("Preparing to copy data from %s to image %s", mountpoint, imageFilePath)
+	log.Infof("preparing to copy data from %s to image %s", mountpoint, imageFilePath)
 
 	imageMountDir, err := os.MkdirTemp(outputDir, fmt.Sprintf("%s-img-mount-*.d", containerID))
 	if err != nil {
@@ -294,7 +294,7 @@ func exportContainerImage(ctx context.Context, containerID string, mountpoint st
 	log.Infof("Created temporary image mount directory: %s", imageMountDir)
 
 	var loopDevice string
-	var imageSuccessfullyMounted bool = false
+	imageSuccessfullyMounted := false
 
 	// Defer cleanup actions in LIFO order (unmount image, detach loop, remove temp dir)
 	defer func() {

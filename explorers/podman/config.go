@@ -39,14 +39,14 @@ type containerConfig struct {
 }
 
 type containerImage struct {
-	ID             string                 `json:"id"`
-	Digest         string                 `json:"digest"`
-	Names          []string               `json:"names"`
-	NameHistory    []string               `json:"name-history"`
-	Layer          string                 `json:"layer"`
-	Metadata       map[string]interface{} `json:"metadata"`
-	BigDataNames   []string               `json:"big-data-names"`
-	BigDataSizes   []string               `json:"big-data-sizes"`
-	BigDataDigests []string               `json:"big-data-digests"`
-	Created        string                 `json:"created"`
+	ID             string         `json:"id"`
+	Digest         string         `json:"digest"`
+	Names          []string       `json:"names"`
+	NameHistory    []string       `json:"name-history"`
+	Layer          string         `json:"layer"`
+	Metadata       map[string]any `json:"metadata"`
+	BigDataNames   []string       `json:"big-data-names"`
+	BigDataSizes   []string       `json:"big-data-sizes"`
+	BigDataDigests []string       `json:"big-data-digests"`
+	Created        string         `json:"created"`
 }
