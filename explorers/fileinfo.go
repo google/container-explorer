@@ -36,9 +36,9 @@ type FileInfo struct {
 	FileAccessed time.Time `json:"file_accessed"`
 	FileChanged  time.Time `json:"file_changed"`
 	FileBirth    time.Time `json:"file_birth"`
-	FileUid      string    `json:"file_uid,omitempty"`
+	FileUID      string    `json:"file_uid,omitempty"`
 	FileOwner    string    `json:"file_owner,omitempty"`
-	FileGid      string    `json:"file_gid,omitempty"`
+	FileGID      string    `json:"file_gid,omitempty"`
 	FileType     string    `json:"file_type,omitempty"`
 	FileSHA256   string    `json:"file_sha256,omitempty"`
 }

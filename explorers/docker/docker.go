@@ -203,7 +203,7 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 
 type rootfs struct {
 	Rfstype string   `json:"type"`
-	DiffIds []string `json:"diff_ids"`
+	DiffIDs []string `json:"diff_ids"`
 }
 
 // Refer to struct History

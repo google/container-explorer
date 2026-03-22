@@ -31,7 +31,7 @@ import (
 )
 
 // ExportContainer exports a container either as a raw image or an archive.
-func (e *explorer) ExportContainer(ctx context.Context, containerID string, outputDir string, exportOption map[string]bool) error {
+func (e *explorer) ExportContainer(ctx context.Context, containerID string, outputDir string, exportOptions map[string]bool) error {
 	// Check if the specified containerID exists.
 	containerExists := false
 
@@ -125,7 +125,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 			}
 		}()
 
-		if exportOption["image"] {
+		if exportOptions["image"] {
 			log.Infof("exporting container %s as a raw image to %s", targetContainer.ID, outputDir)
 			if err := exportContainerImage(ctx, targetContainer.ID, mountpoint, outputDir); err != nil {
 				return fmt.Errorf("failed to export container %s as raw image: %w", targetContainer.ID, err)
@@ -133,7 +133,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 			log.Infof("successfully exported container %s as a raw image", targetContainer.ID)
 		}
 
-		if exportOption["archive"] {
+		if exportOptions["archive"] {
 			log.Infof("exporting container %s as an archive to %s", targetContainer.ID, outputDir)
 			if err := exportContainerArchive(ctx, targetContainer.ID, mountpoint, outputDir); err != nil {
 				return fmt.Errorf("failed to export container %s as archive: %w", targetContainer.ID, err)
@@ -150,7 +150,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 }
 
 // ExportAllContainers exports all Docker containers to specified output directory.
-func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, exportOption map[string]bool, filter map[string]string, exportSupportContainers bool) error {
+func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, exportOptions map[string]bool, filter map[string]string, exportSupportContainers bool) error {
 	containerNamespaces, err := e.ListNamespaces(ctx)
 	if err != nil {
 		return fmt.Errorf("listing namespaces: %w", err)
@@ -199,7 +199,7 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 					"containerType": container.ContainerType,
 				}).Debug("ignoring Docker container for export")
 
-				err := e.ExportContainer(ctx, container.ID, outputDir, exportOption)
+				err := e.ExportContainer(ctx, container.ID, outputDir, exportOptions)
 				if err != nil {
 					log.WithFields(log.Fields{
 						"containerID":   container.ID,

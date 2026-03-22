@@ -155,7 +155,7 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 		json.Unmarshal(data, &pmImages)
 
 		for _, pmImage := range pmImages {
-			createdat, _ := time.Parse(time.RFC3339Nano, pmImage.Created)
+			createdAt, _ := time.Parse(time.RFC3339Nano, pmImage.Created)
 
 			var imageManifest ocispec.Manifest
 
@@ -177,7 +177,7 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 						Digest:    digest.Digest(pmImage.Digest),
 						MediaType: imageManifest.MediaType,
 					},
-					CreatedAt: createdat,
+					CreatedAt: createdAt,
 				},
 				SupportContainerImage: false,
 			}
@@ -381,12 +381,12 @@ func (e *explorer) getUserHomeDirs() ([]string, error) {
 
 	var usernames []string
 
-	passwdlines := strings.Split(string(data), "\n")
-	for _, passwdline := range passwdlines {
-		if !strings.HasSuffix(passwdline, "/bash") {
+	passwdLines := strings.Split(string(data), "\n")
+	for _, passwdLine := range passwdLines {
+		if !strings.HasSuffix(passwdLine, "/bash") {
 			continue
 		}
-		username := strings.Split(passwdline, ":")[5]
+		username := strings.Split(passwdLine, ":")[5]
 		if username != "" {
 			usernames = append(usernames, username)
 		}

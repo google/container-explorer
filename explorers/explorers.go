@@ -29,10 +29,10 @@ type ContainerExplorer interface {
 	ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]Drift, error)
 
 	// ExportAllContainers exports all Docker and containerd containers.
-	ExportAllContainers(ctx context.Context, outputDir string, exportOption map[string]bool, filter map[string]string, exportSupportContainers bool) error
+	ExportAllContainers(ctx context.Context, outputDir string, exportOptions map[string]bool, filter map[string]string, exportSupportContainers bool) error
 
 	// ExportContainer exports a container as an image or archive.
-	ExportContainer(ctx context.Context, containerID string, outputDir string, exportOption map[string]bool) error
+	ExportContainer(ctx context.Context, containerID string, outputDir string, exportOptions map[string]bool) error
 
 	// InfoContainer returns container internal information
 	InfoContainer(ctx context.Context, containerID string, spec bool) (any, error)
