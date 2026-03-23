@@ -1,0 +1,112 @@
+{
+ "StreamConfig": {},
+ "State": {
+  "Running": false,
+  "Paused": false,
+  "Resarting": false,
+  "OOMKilled": false,
+  "RemovalInProgress": false,
+  "Dead": false,
+  "Pid": 0,
+  "ExitCode": 0,
+  "Error": "",
+  "StartedAt": "2024-12-15T18:33:20.608245093Z",
+  "FinishedAt": "2024-12-15T23:57:58.784032535Z",
+  "Health": null
+ },
+ "ID": "3062389c72cd1485dd7caa96bf5877623665f00e74d72c15cf35876af850a2cd",
+ "Created": "2024-12-15T18:33:20.54503684Z",
+ "Managed": false,
+ "Path": "/docker-entrypoint.sh",
+ "Args": [
+  "/bin/bash"
+ ],
+ "ContainerConfig": null,
+ "Config": {
+  "ExposedPorts": {
+   "80/tcp": {}
+  },
+  "Hostname": "3062389c72cd",
+  "Domainname": "",
+  "User": "",
+  "AttachStdin": true,
+  "AttachStdout": true,
+  "AttachStderr": true,
+  "Tty": true,
+  "OpenStdin": true,
+  "StdinOnce": true,
+  "Env": [
+   "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+   "NGINX_VERSION=1.27.3",
+   "NJS_VERSION=0.8.7",
+   "NJS_RELEASE=1~bookworm",
+   "PKG_RELEASE=1~bookworm",
+   "DYNPKG_RELEASE=1~bookworm"
+  ],
+  "Cmd": [
+   "/bin/bash"
+  ],
+  "Image": "nginx:latest",
+  "Volumes": null,
+  "WorkingDir": "",
+  "EntryPoint": [
+   "/docker-entrypoint.sh"
+  ],
+  "OnBuild": null,
+  "Labels": {
+   "maintainer": "NGINX Docker Maintainers \u003cdocker-maint@nginx.com\u003e"
+  }
+ },
+ "Image": "sha256:66f8bdd3810c96dc5c28aec39583af731b34a2cd99471530f53c8794ed5b423e",
+ "NetworkSettings": {
+  "Bridge": "",
+  "SandboxID": "",
+  "HairpinMode": false,
+  "LinkLocalIPv6Address": "",
+  "LinkLocalIPv6PrefixLen": 0,
+  "Networks": {
+   "bridge": {
+    "Aliases": null,
+    "DNSNames": null,
+    "DesiredMacAddress": "",
+    "DriverOpts": null,
+    "EndpointID": "",
+    "Gateway": "",
+    "GlobalIPv6Address": "",
+    "GlobalIPv6PrefixLen": 0,
+    "IPAMConfig": null,
+    "IPAMOperational": false,
+    "IPAddress": "",
+    "IPPrefixLen": 0,
+    "IPv6Gateway": "",
+    "Links": null,
+    "MacAddress": "",
+    "NetworkID": "4d8643f7beea62f59a14363914bb6486a139996b69a680c70687954073db7294"
+   }
+  },
+  "Service": null,
+  "Ports": null,
+  "SandboxKey": "",
+  "SecondaryIPAddresses": null,
+  "SecondaryIPv6Addresses": null,
+  "IsAnonymousEndpoint": false,
+  "HasSwarmEndpoint": false
+ },
+ "LogPath": "/var/lib/docker/containers/3062389c72cd1485dd7caa96bf5877623665f00e74d72c15cf35876af850a2cd/3062389c72cd1485dd7caa96bf5877623665f00e74d72c15cf35876af850a2cd-json.log",
+ "Name": "/docker_container_drift",
+ "Driver": "overlay2",
+ "MountLabel": "",
+ "ProcessLabel": "",
+ "RestartCount": 0,
+ "HasBeenRestartedBefore": false,
+ "HasBeenManuallyStopped": false,
+ "MountPoints": {},
+ "SecretReferences": null,
+ "AppArmorProfile": "docker-default",
+ "HostnamePath": "/var/lib/docker/containers/3062389c72cd1485dd7caa96bf5877623665f00e74d72c15cf35876af850a2cd/hostname",
+ "HostsPath": "/var/lib/docker/containers/3062389c72cd1485dd7caa96bf5877623665f00e74d72c15cf35876af850a2cd/hosts",
+ "ShmPath": "",
+ "ResolvConfPath": "/var/lib/docker/containers/3062389c72cd1485dd7caa96bf5877623665f00e74d72c15cf35876af850a2cd/resolv.conf",
+ "SeccompProfile": "",
+ "NoNewPrivileges": false
+}

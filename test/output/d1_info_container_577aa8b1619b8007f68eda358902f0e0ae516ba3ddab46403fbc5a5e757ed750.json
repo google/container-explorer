@@ -1,0 +1,119 @@
+{
+ "StreamConfig": {},
+ "State": {
+  "Running": true,
+  "Paused": false,
+  "Resarting": false,
+  "OOMKilled": false,
+  "RemovalInProgress": false,
+  "Dead": false,
+  "Pid": 9074,
+  "ExitCode": 0,
+  "Error": "",
+  "StartedAt": "2026-03-07T08:42:55.312126678Z",
+  "FinishedAt": "0001-01-01T00:00:00Z",
+  "Health": null
+ },
+ "ID": "577aa8b1619b8007f68eda358902f0e0ae516ba3ddab46403fbc5a5e757ed750",
+ "Created": "2026-03-07T08:42:55.218484065Z",
+ "Managed": false,
+ "Path": "/bin/bash",
+ "Args": [],
+ "ContainerConfig": null,
+ "Config": {
+  "ExposedPorts": null,
+  "Hostname": "577aa8b1619b",
+  "Domainname": "",
+  "User": "",
+  "AttachStdin": false,
+  "AttachStdout": false,
+  "AttachStderr": false,
+  "Tty": true,
+  "OpenStdin": true,
+  "StdinOnce": false,
+  "Env": [
+   "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  ],
+  "Cmd": [
+   "/bin/bash"
+  ],
+  "Image": "ubuntu:latest",
+  "Volumes": null,
+  "WorkingDir": "",
+  "EntryPoint": null,
+  "OnBuild": null,
+  "Labels": {
+   "org.opencontainers.image.ref.name": "ubuntu",
+   "org.opencontainers.image.version": "24.04"
+  }
+ },
+ "Image": "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
+ "NetworkSettings": {
+  "Bridge": "",
+  "SandboxID": "d310191594c37dcf9d88bb162648164cb9b921c559bac79062866530284bb9f2",
+  "HairpinMode": false,
+  "LinkLocalIPv6Address": "",
+  "LinkLocalIPv6PrefixLen": 0,
+  "Networks": {
+   "bridge": {
+    "Aliases": null,
+    "DNSNames": null,
+    "DesiredMacAddress": "",
+    "DriverOpts": null,
+    "EndpointID": "c600b20ef4534fac28474ce93820cdc1e396a935eb78cc288f453a4259aadd3d",
+    "Gateway": "172.17.0.1",
+    "GlobalIPv6Address": "",
+    "GlobalIPv6PrefixLen": 0,
+    "GwPriority": 0,
+    "IPAMConfig": null,
+    "IPAMOperational": false,
+    "IPAddress": "172.17.0.2",
+    "IPPrefixLen": 16,
+    "IPv6Gateway": "",
+    "Links": null,
+    "MacAddress": "66:b5:5c:1f:c7:b8",
+    "NetworkID": "b24e6d5f698fcc64336ef50a16ba8694a6bdf6e0febaa924045c075892a9c85a"
+   }
+  },
+  "Service": null,
+  "Ports": {},
+  "SandboxKey": "/var/run/docker/netns/d310191594c3",
+  "SecondaryIPAddresses": null,
+  "SecondaryIPv6Addresses": null,
+  "IsAnonymousEndpoint": false,
+  "HasSwarmEndpoint": false
+ },
+ "LogPath": "/var/lib/docker/containers/577aa8b1619b8007f68eda358902f0e0ae516ba3ddab46403fbc5a5e757ed750/577aa8b1619b8007f68eda358902f0e0ae516ba3ddab46403fbc5a5e757ed750-json.log",
+ "Name": "/docker-ubuntu",
+ "Driver": "overlayfs",
+ "MountLabel": "",
+ "ProcessLabel": "",
+ "RestartCount": 0,
+ "HasBeenRestartedBefore": false,
+ "HasBeenManuallyStopped": false,
+ "MountPoints": {
+  "/data": {
+   "Destination": "/data",
+   "Driver": "",
+   "Name": "",
+   "Propagation": "rprivate",
+   "RW": true,
+   "SkipMountpointCreation": false,
+   "Source": "/data/docker/ubuntu",
+   "Spec": {
+    "Source": "/data/docker/ubuntu",
+    "Target": "/data",
+    "Type": "bind"
+   },
+   "Type": "bind"
+  }
+ },
+ "SecretReferences": null,
+ "AppArmorProfile": "docker-default",
+ "HostnamePath": "/var/lib/docker/containers/577aa8b1619b8007f68eda358902f0e0ae516ba3ddab46403fbc5a5e757ed750/hostname",
+ "HostsPath": "/var/lib/docker/containers/577aa8b1619b8007f68eda358902f0e0ae516ba3ddab46403fbc5a5e757ed750/hosts",
+ "ShmPath": "",
+ "ResolvConfPath": "/var/lib/docker/containers/577aa8b1619b8007f68eda358902f0e0ae516ba3ddab46403fbc5a5e757ed750/resolv.conf",
+ "SeccompProfile": "",
+ "NoNewPrivileges": false
+}

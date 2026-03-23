@@ -1,0 +1,145 @@
+{
+ "StreamConfig": {},
+ "State": {
+  "Running": true,
+  "Paused": false,
+  "Resarting": false,
+  "OOMKilled": false,
+  "RemovalInProgress": false,
+  "Dead": false,
+  "Pid": 9356,
+  "ExitCode": 0,
+  "Error": "",
+  "StartedAt": "2026-03-07T08:49:33.497797209Z",
+  "FinishedAt": "0001-01-01T00:00:00Z",
+  "Health": null
+ },
+ "ID": "6ceb6889284366fea95ae4b980449c2d4ffaeea735692705d5aa0f67baea2553",
+ "Created": "2026-03-07T08:49:33.369065247Z",
+ "Managed": false,
+ "Path": "/docker-entrypoint.sh",
+ "Args": [
+  "nginx",
+  "-g",
+  "daemon off;"
+ ],
+ "ContainerConfig": null,
+ "Config": {
+  "ExposedPorts": {
+   "80/tcp": {}
+  },
+  "Hostname": "6ceb68892843",
+  "Domainname": "",
+  "User": "",
+  "AttachStdin": false,
+  "AttachStdout": false,
+  "AttachStderr": false,
+  "Tty": false,
+  "OpenStdin": false,
+  "StdinOnce": false,
+  "Env": [
+   "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+   "NGINX_VERSION=1.29.5",
+   "NJS_VERSION=0.9.5",
+   "NJS_RELEASE=1~trixie",
+   "ACME_VERSION=0.3.1",
+   "PKG_RELEASE=1~trixie",
+   "DYNPKG_RELEASE=1~trixie"
+  ],
+  "Cmd": [
+   "nginx",
+   "-g",
+   "daemon off;"
+  ],
+  "Image": "nginx:latest",
+  "Volumes": null,
+  "WorkingDir": "",
+  "EntryPoint": [
+   "/docker-entrypoint.sh"
+  ],
+  "OnBuild": null,
+  "Labels": {
+   "maintainer": "NGINX Docker Maintainers \u003cdocker-maint@nginx.com\u003e"
+  }
+ },
+ "Image": "sha256:0236ee02dcbce00b9bd83e0f5fbc51069e7e1161bd59d99885b3ae1734f3392e",
+ "NetworkSettings": {
+  "Bridge": "",
+  "SandboxID": "f679db3d5cae3202e57bc0481d1a21b615bdcb5f6073026975beaa6a6f818e93",
+  "HairpinMode": false,
+  "LinkLocalIPv6Address": "",
+  "LinkLocalIPv6PrefixLen": 0,
+  "Networks": {
+   "bridge": {
+    "Aliases": null,
+    "DNSNames": null,
+    "DesiredMacAddress": "",
+    "DriverOpts": null,
+    "EndpointID": "cbc3967f3f0d0dd832adc9a506b4ebf80f01201865cda9a362c0fa3b39b05944",
+    "Gateway": "172.17.0.1",
+    "GlobalIPv6Address": "",
+    "GlobalIPv6PrefixLen": 0,
+    "GwPriority": 0,
+    "IPAMConfig": null,
+    "IPAMOperational": false,
+    "IPAddress": "172.17.0.3",
+    "IPPrefixLen": 16,
+    "IPv6Gateway": "",
+    "Links": null,
+    "MacAddress": "fa:ce:19:fc:3c:7a",
+    "NetworkID": "b24e6d5f698fcc64336ef50a16ba8694a6bdf6e0febaa924045c075892a9c85a"
+   }
+  },
+  "Service": null,
+  "Ports": {
+   "80/tcp": [
+    {
+     "HostIp": "0.0.0.0",
+     "HostPort": "8080"
+    },
+    {
+     "HostIp": "::",
+     "HostPort": "8080"
+    }
+   ]
+  },
+  "SandboxKey": "/var/run/docker/netns/f679db3d5cae",
+  "SecondaryIPAddresses": null,
+  "SecondaryIPv6Addresses": null,
+  "IsAnonymousEndpoint": false,
+  "HasSwarmEndpoint": false
+ },
+ "LogPath": "/var/lib/docker/containers/6ceb6889284366fea95ae4b980449c2d4ffaeea735692705d5aa0f67baea2553/6ceb6889284366fea95ae4b980449c2d4ffaeea735692705d5aa0f67baea2553-json.log",
+ "Name": "/docker-nginx",
+ "Driver": "overlayfs",
+ "MountLabel": "",
+ "ProcessLabel": "",
+ "RestartCount": 0,
+ "HasBeenRestartedBefore": false,
+ "HasBeenManuallyStopped": false,
+ "MountPoints": {
+  "/data": {
+   "Destination": "/data",
+   "Driver": "",
+   "Name": "",
+   "Propagation": "rprivate",
+   "RW": true,
+   "SkipMountpointCreation": false,
+   "Source": "/data/docker/nginx",
+   "Spec": {
+    "Source": "/data/docker/nginx",
+    "Target": "/data",
+    "Type": "bind"
+   },
+   "Type": "bind"
+  }
+ },
+ "SecretReferences": null,
+ "AppArmorProfile": "docker-default",
+ "HostnamePath": "/var/lib/docker/containers/6ceb6889284366fea95ae4b980449c2d4ffaeea735692705d5aa0f67baea2553/hostname",
+ "HostsPath": "/var/lib/docker/containers/6ceb6889284366fea95ae4b980449c2d4ffaeea735692705d5aa0f67baea2553/hosts",
+ "ShmPath": "",
+ "ResolvConfPath": "/var/lib/docker/containers/6ceb6889284366fea95ae4b980449c2d4ffaeea735692705d5aa0f67baea2553/resolv.conf",
+ "SeccompProfile": "",
+ "NoNewPrivileges": false
+}
