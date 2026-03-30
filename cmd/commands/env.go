@@ -18,8 +18,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -34,72 +32,96 @@ const (
 	defaultDockerRootDir     = "/var/lib/docker"
 )
 
-// parseRuntimeConfig parses container explorer runtime configuration and returns as a map.
-func parseRuntimeConfig(clictx *cli.Context) (context.Context, map[string]any, error) {
-	ctx := context.Background()
+// RuntimeConfig holds the global configuration for container-explorer.
+type RuntimeConfig struct {
+	Context               context.Context
+	ImageRootDir          string
+	ContainerdRootDir     string
+	DockerRootDir         string
+	PodmanRootDir         string
+	LayerCache            string
+	SupportContainerData  *explorers.SupportContainer
+	Output                string
+	OutputFile            string
+	Debug                 bool
+}
 
-	imageRoot := clictx.GlobalString("image-root")
-	containerdRoot := clictx.GlobalString("containerd-root")
-	dockerRoot := clictx.GlobalString("docker-root")
-	layercache := clictx.GlobalString("layer-cache")
+// GlobalConfig is the package-level configuration object.
+var GlobalConfig RuntimeConfig
 
-	// Exit if image and container root directories are empty
-	if imageRoot == "" && containerdRoot == "" && dockerRoot == "" {
-		fmt.Printf("missing required argument: use --image-root, --containerd-root, or --docker-root\n")
-		os.Exit(1)
-	}
+// InitializeRuntime sets up the global configuration from the CLI context.
+func InitializeRuntime(clictx *cli.Context) error {
+	GlobalConfig.Context = context.Background()
+	GlobalConfig.Debug = clictx.GlobalBool("debug")
+	GlobalConfig.ImageRootDir = clictx.GlobalString("image-root")
+	GlobalConfig.ContainerdRootDir = clictx.GlobalString("containerd-root")
+	GlobalConfig.DockerRootDir = clictx.GlobalString("docker-root")
+	GlobalConfig.LayerCache = clictx.GlobalString("layer-cache")
+	GlobalConfig.Output = clictx.GlobalString("output")
+	GlobalConfig.OutputFile = clictx.GlobalString("output-file")
 
-	// Read support container data if provided using global switch.
+	// Read support container data if provided.
 	supportContainerFile := clictx.GlobalString("support-container-data")
 	sc, err := explorers.NewSupportContainer(supportContainerFile)
 	if err != nil {
 		log.Errorf("getting new support container: %v", err)
 	}
+	GlobalConfig.SupportContainerData = sc
 
-	// Handle docker managed containers.
-	//
-	// This includes Kubernetes containers managed using docker.
-	if dockerRoot == "" {
-		if imageRoot != "" {
-			dockerRoot = filepath.Join(imageRoot, strings.Replace(defaultDockerRootDir, "/", "", 1))
-		} else if containerdRoot != "" {
-			parentDir := filepath.Dir(strings.TrimSuffix(containerdRoot, "/"))
-			dockerRoot = filepath.Join(parentDir, "docker")
+	// Handle docker managed containers root.
+	if GlobalConfig.DockerRootDir == "" {
+		if GlobalConfig.ImageRootDir != "" {
+			GlobalConfig.DockerRootDir = filepath.Join(GlobalConfig.ImageRootDir, strings.Replace(defaultDockerRootDir, "/", "", 1))
+		} else if GlobalConfig.ContainerdRootDir != "" {
+			parentDir := filepath.Dir(strings.TrimSuffix(GlobalConfig.ContainerdRootDir, "/"))
+			GlobalConfig.DockerRootDir = filepath.Join(parentDir, "docker")
 		}
 	}
 
-	// Handle containerd managed containers.
-	//
-	// The default is containerd managed containers. This includes
-	// Kubernetes managed containers.
-	if containerdRoot == "" {
-		if imageRoot != "" {
-			containerdRoot = filepath.Join(imageRoot, strings.Replace(defaultContainerdRootDir, "/", "", 1))
-		} else if dockerRoot != "" {
-			parentDir := filepath.Dir(strings.TrimSuffix(dockerRoot, "/"))
-			containerdRoot = filepath.Join(parentDir, "containerd")
+	// Handle containerd managed containers root.
+	if GlobalConfig.ContainerdRootDir == "" {
+		if GlobalConfig.ImageRootDir != "" {
+			GlobalConfig.ContainerdRootDir = filepath.Join(GlobalConfig.ImageRootDir, strings.Replace(defaultContainerdRootDir, "/", "", 1))
+		} else if GlobalConfig.DockerRootDir != "" {
+			parentDir := filepath.Dir(strings.TrimSuffix(GlobalConfig.DockerRootDir, "/"))
+			GlobalConfig.ContainerdRootDir = filepath.Join(parentDir, "containerd")
 		}
 	}
 
 	if !clictx.GlobalBool("use-layer-cache") {
-		layercache = ""
+		GlobalConfig.LayerCache = ""
 	}
 
 	log.WithFields(log.Fields{
-		"imageRoot":            imageRoot,
-		"containerdRoot":       containerdRoot,
-		"dockerRoot":           dockerRoot,
-		"layercache":           layercache,
-		"supportContainerData": sc,
-	}).Debug("runtime configuration")
+		"imageRoot":            GlobalConfig.ImageRootDir,
+		"containerdRoot":       GlobalConfig.ContainerdRootDir,
+		"dockerRoot":           GlobalConfig.DockerRootDir,
+		"layercache":           GlobalConfig.LayerCache,
+		"supportContainerData": GlobalConfig.SupportContainerData,
+		"debug":                GlobalConfig.Debug,
+	}).Debug("runtime configuration initialized")
+
+	return nil
+}
+
+// parseRuntimeConfig is kept for backward compatibility during migration.
+// It now returns the GlobalConfig values.
+func parseRuntimeConfig(clictx *cli.Context) (context.Context, map[string]any, error) {
+	// If GlobalConfig hasn't been initialized (e.g. if Before hook wasn't called), initialize it now.
+	// This ensures existing calls still work reliably.
+	if GlobalConfig.Context == nil {
+		if err := InitializeRuntime(clictx); err != nil {
+			return nil, nil, err
+		}
+	}
 
 	runtimeConfig := make(map[string]any)
-	runtimeConfig["imageRootDir"] = imageRoot
-	runtimeConfig["containerdRootDir"] = containerdRoot
-	runtimeConfig["dockerRootDir"] = dockerRoot
+	runtimeConfig["imageRootDir"] = GlobalConfig.ImageRootDir
+	runtimeConfig["containerdRootDir"] = GlobalConfig.ContainerdRootDir
+	runtimeConfig["dockerRootDir"] = GlobalConfig.DockerRootDir
 	runtimeConfig["podmanRootDir"] = ""
-	runtimeConfig["layercache"] = layercache
-	runtimeConfig["supportContainerData"] = sc
+	runtimeConfig["layercache"] = GlobalConfig.LayerCache
+	runtimeConfig["supportContainerData"] = GlobalConfig.SupportContainerData
 
-	return ctx, runtimeConfig, nil
+	return GlobalConfig.Context, runtimeConfig, nil
 }

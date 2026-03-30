@@ -90,15 +90,15 @@ var listContainers = cli.Command{
 	Description: "list containers for all namespaces",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "filter",
+			Name:  "filter, f",
 			Usage: "comma separated label filter using key=value pair",
 		},
 		cli.BoolFlag{
-			Name:  "show-support-containers",
+			Name:  "show-support-containers, s",
 			Usage: "show supporting containers created by Kubernetes",
 		},
 		cli.BoolFlag{
-			Name:  "no-labels",
+			Name:  "no-labels, L",
 			Usage: "hide container labels",
 		},
 		cli.BoolFlag{
@@ -106,11 +106,11 @@ var listContainers = cli.Command{
 			Usage: "show updated timestamp",
 		},
 		cli.BoolFlag{
-			Name:  "ports",
+			Name:  "ports, p",
 			Usage: "show exposed ports",
 		},
 		cli.BoolFlag{
-			Name:  "running",
+			Name:  "running, r",
 			Usage: "show running docker managed containers",
 		},
 	},
@@ -310,7 +310,7 @@ var listImages = cli.Command{
 	Description: "list images for all namespaces",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "show-support-containers",
+			Name:  "show-support-containers, s",
 			Usage: "show Kubernetes support container images",
 		},
 		cli.BoolFlag{
@@ -318,7 +318,7 @@ var listImages = cli.Command{
 			Usage: "show updated timestamp",
 		},
 		cli.BoolFlag{
-			Name:  "no-labels",
+			Name:  "no-labels, L",
 			Usage: "hide image labels",
 		},
 	},
@@ -556,11 +556,11 @@ var listSnapshots = cli.Command{
 	Description: "list snapshots for all namespaces",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "no-labels",
+			Name:  "no-labels, L",
 			Usage: "hide snapshot labels",
 		},
 		cli.BoolFlag{
-			Name:  "full-overlay-path",
+			Name:  "full-overlay-path, P",
 			Usage: "show overlay full path",
 		},
 	},

@@ -38,16 +38,16 @@ var MountAllCommand = cli.Command{
 	ArgsUsage:   "[flag] MOUNT_POINT",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "container-engine",
+			Name:  "container-engine, e",
 			Usage: "support container engines are docker, containerd, and podman",
 			Value: "all",
 		},
 		cli.StringFlag{
-			Name:  "filter",
+			Name:  "filter, f",
 			Usage: "comma separated label filter using key=value pair",
 		},
 		cli.BoolFlag{
-			Name:  "mount-support-containers",
+			Name:  "mount-support-containers, s",
 			Usage: "mount Kubernetes supporting containers",
 		},
 	},

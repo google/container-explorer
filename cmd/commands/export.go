@@ -38,11 +38,11 @@ var ExportCommand = cli.Command{
 	ArgsUsage:   "ID OUTPUTDIR",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "image",
+			Name:  "image, i",
 			Usage: "output container as raw image",
 		},
 		cli.BoolFlag{
-			Name:  "archive",
+			Name:  "archive, a",
 			Usage: "output container as archive",
 		},
 	},
@@ -152,24 +152,24 @@ var ExportAllCommand = cli.Command{
 	ArgsUsage:   "OUTPUTDIR",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "image",
+			Name:  "image, i",
 			Usage: "output container as raw image",
 		},
 		cli.BoolFlag{
-			Name:  "archive",
+			Name:  "archive, a",
 			Usage: "output container as archive",
 		},
 		cli.StringFlag{
-			Name:  "container-engine",
+			Name:  "container-engine, e",
 			Usage: "supported container engine containerd, docker, and podman",
 			Value: "all",
 		},
 		cli.StringFlag{
-			Name:  "filter",
+			Name:  "filter, f",
 			Usage: "comma separated label filter using key=value",
 		},
 		cli.BoolFlag{
-			Name:  "export-support-containers",
+			Name:  "export-support-containers, s",
 			Usage: "export Kubernetes supporting containers",
 		},
 	},

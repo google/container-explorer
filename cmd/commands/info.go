@@ -45,7 +45,7 @@ var infoContainer = cli.Command{
 	Description: "show container internal information",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "spec",
+			Name:  "spec, s",
 			Usage: "show only container spec",
 		},
 	},

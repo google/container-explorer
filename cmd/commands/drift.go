@@ -41,11 +41,11 @@ var DriftCommand = cli.Command{
 	ArgsUsage:   "[containerID]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "filter",
+			Name:  "filter, f",
 			Usage: "comma separated label filter using key=value pair",
 		},
 		cli.BoolFlag{
-			Name:  "mount-support-containers",
+			Name:  "mount-support-containers, s",
 			Usage: "mount Kubernetes supporting containers",
 		},
 	},
