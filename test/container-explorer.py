@@ -469,6 +469,11 @@ def main() -> None:
         ContainerExplorerTester(DISK2_MOUNTPOINT, "d2"),
     ]
 
+    if not os.path.exists(CONTAINER_MOUNTPOINT):
+        os.makedirs(CONTAINER_MOUNTPOINT)
+    if not os.path.exists(CONTAINER_EXPORT_DIR):
+        os.makedirs(CONTAINER_EXPORT_DIR)
+
     for tester in test_suite:
         tester.test_list_containers()
     for tester in test_suite:
