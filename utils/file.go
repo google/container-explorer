@@ -41,8 +41,13 @@ func PathExists(path string) (bool, error) {
 	return false, err
 }
 
+func PathExistsV2(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
 const (
-	charset       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 )
 
 var seededRand *rand.Rand = rand.New(
@@ -59,7 +64,7 @@ func GenerateRandomString(stringLength int) string {
 
 func GetMountPoint() string {
 	mountSuffix := GenerateRandomString(6)
-	mountPoint := filepath.Join("/", "mnt", mountSuffix)
+	mountPoint := filepath.Join(os.TempDir(), "mnt", mountSuffix)
 	return mountPoint
 }
 

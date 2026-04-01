@@ -17,9 +17,16 @@ limitations under the License.
 package commands
 
 import (
+	"context"
 	"fmt"
 	"runtime"
+	"strings"
 
+	"github.com/google/container-explorer/explorers"
+	"github.com/google/container-explorer/explorers/containerd"
+	"github.com/google/container-explorer/explorers/docker"
+	"github.com/google/container-explorer/explorers/podman"
+	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
@@ -31,11 +38,16 @@ var MountAllCommand = cli.Command{
 	ArgsUsage:   "[flag] MOUNT_POINT",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "filter",
+			Name:  "container-engine, e",
+			Usage: "support container engines are docker, containerd, and podman",
+			Value: "all",
+		},
+		cli.StringFlag{
+			Name:  "filter, f",
 			Usage: "comma separated label filter using key=value pair",
 		},
 		cli.BoolFlag{
-			Name:  "mount-support-containers",
+			Name:  "mount-support-containers, s",
 			Usage: "mount Kubernetes supporting containers",
 		},
 	},
@@ -50,18 +62,64 @@ var MountAllCommand = cli.Command{
 		}
 
 		mountpoint := clictx.Args().First()
+		containerEngine := clictx.String("container-engine")
 		filter := clictx.String("filter")
+		skipSupportContainer := !clictx.Bool("mount-support-containers")
 
-		ctx, exp, cancel, err := explorerEnvironment(clictx)
+		ctx, runtimeConfig, err := parseRuntimeConfig(clictx)
 		if err != nil {
-			return err
+			return fmt.Errorf("setting container explorer environment")
 		}
-		defer cancel()
 
-		if err := exp.MountAllContainers(ctx, mountpoint, filter, !clictx.Bool("mount-support-containers")); err != nil {
-			return err
+		imageRootDir := runtimeConfig["imageRootDir"].(string)
+		containerdRootDir := runtimeConfig["containerdRootDir"].(string)
+		dockerRootDir := runtimeConfig["dockerRootDir"].(string)
+		layercache := runtimeConfig["layercache"].(string)
+		sc := runtimeConfig["supportContainerData"].(*explorers.SupportContainer)
+
+		log.WithFields(log.Fields{
+			"containerEngine":      containerEngine,
+			"filter":               filter,
+			"skipSupportContainer": skipSupportContainer,
+		}).Debug("mounting all containers")
+
+		dkrxplr, err := docker.NewExplorer(imageRootDir, containerdRootDir, dockerRootDir)
+		if err != nil {
+			log.Errorf("getting docker explorer: %v", err)
+		} else {
+			if containerEngine == "all" || strings.ToLower(containerEngine) == "docker" {
+				if err := mountAllContainers(ctx, dkrxplr, mountpoint, filter, skipSupportContainer); err != nil {
+					log.Errorf("mounting docker containers: %v", err)
+				}
+			}
 		}
-		// default
-		return nil
+
+		pmxplr, err := podman.NewExplorer(imageRootDir)
+		if err != nil {
+			log.Errorf("getting podman explorer: %v", err)
+		} else {
+			if containerEngine == "all" || strings.ToLower(containerEngine) == "podman" {
+				if err := mountAllContainers(ctx, pmxplr, mountpoint, filter, skipSupportContainer); err != nil {
+					log.Errorf("mounting podman containers: %v", err)
+				}
+			}
+		}
+
+		ctrxplr, err := containerd.NewExplorer(imageRootDir, containerdRootDir, dockerRootDir, layercache, sc)
+		if err != nil {
+			log.Errorf("getting containerd explorer: %v", err)
+		} else {
+			if containerEngine == "all" || strings.ToLower(containerEngine) == "containerd" {
+				if err := mountAllContainers(ctx, ctrxplr, mountpoint, filter, skipSupportContainer); err != nil {
+					log.Errorf("mounting containerd containers: %v", err)
+				}
+			}
+		}
+
+		return nil // default
 	},
+}
+
+func mountAllContainers(ctx context.Context, xplr explorers.ContainerExplorer, mountpoint string, filter string, skipSupportContainer bool) error {
+	return xplr.MountAllContainers(ctx, mountpoint, filter, skipSupportContainer)
 }

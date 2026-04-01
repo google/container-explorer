@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	VERSION = "0.4.0"
+	VERSION = "0.6.0"
 )
 
 func init() {
@@ -48,7 +48,7 @@ func main() {
 	`
 	app.Flags = []cli.Flag{
 		cli.BoolFlag{
-			Name:  "debug",
+			Name:  "debug, d",
 			Usage: "enable debug messages",
 		},
 
@@ -76,38 +76,21 @@ func main() {
 			Name:  "image-root, i",
 			Usage: "specify mount point for a disk image",
 		},
-		cli.StringFlag{
-			Name:  "metadata-file, m",
-			Usage: "specify the path to containerd metadata file i.e. meta.db",
-		},
-		cli.StringFlag{
-			Name:  "snapshot-metadata-file, s",
-			Usage: "specify the path to containerd snapshot metadata file i.e. metadata.db.",
-		},
 		cli.BoolFlag{
-			Name:  "use-layer-cache",
+			Name:  "use-layer-cache, u",
 			Usage: "attempt to use cached layers where layers are symlinks",
 		},
 		cli.StringFlag{
-			Name:  "layer-cache",
+			Name:  "layer-cache, l",
 			Usage: "cached layer folder within the snapshot root",
 			Value: "layers",
 		},
 		cli.StringFlag{
-			Name:  "namespace, n",
-			Usage: "specify container namespace",
-			Value: "default",
-		},
-		cli.BoolFlag{
-			Name:  "docker-managed",
-			Usage: "specify docker manages standalone or Kubernetes containers",
+			Name:  "docker-root, D",
+			Usage: "specify docker root directory",
 		},
 		cli.StringFlag{
-			Name:  "docker-root",
-			Usage: "specify docker root directory. This is only used with flag --docker-managed",
-		},
-		cli.StringFlag{
-			Name:  "support-container-data",
+			Name:  "support-container-data, s",
 			Usage: "a yaml file containing information about support containers",
 		},
 		cli.StringFlag{
@@ -131,11 +114,11 @@ func main() {
 		cecommands.ExportAllCommand,
 	}
 
-	app.Before = func(context *cli.Context) error {
-		if context.GlobalBool("debug") {
+	app.Before = func(clictx *cli.Context) error {
+		if clictx.GlobalBool("debug") {
 			log.SetLevel(log.DebugLevel)
 		}
-		return nil
+		return cecommands.InitializeRuntime(clictx)
 	}
 
 	err := app.Run(os.Args)

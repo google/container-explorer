@@ -23,6 +23,7 @@ import (
 // Image provides information about a container image.
 type Image struct {
 	Namespace             string
+	ContainerType         string
 	SupportContainerImage bool
 	images.Image
 }
