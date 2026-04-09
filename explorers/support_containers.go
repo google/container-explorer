@@ -40,6 +40,9 @@ type SupportContainer struct {
 
 // NewSupportContainer returns the support container instance.
 func NewSupportContainer(path string) (*SupportContainer, error) {
+	if path == "" {
+		return nil, nil
+	}
 	sc, err := LoadSupportContainerFromFile(path)
 	if err != nil {
 		return nil, err
@@ -70,7 +73,7 @@ func LoadSupportContainerFromFile(path string) (SupportContainer, error) {
 // container image.
 func (sc *SupportContainer) SupportContainerImage(image string) bool {
 	if sc == nil {
-		log.WithField("imagebase", image).Debug("support container data not initialized")
+		log.WithField("imageBase", image).Debug("support container data not initialized")
 		return false
 	}
 
@@ -81,12 +84,12 @@ func (sc *SupportContainer) SupportContainerImage(image string) bool {
 			}
 		*/
 		if strings.Contains(strings.ToLower(image), strings.ToLower(scimage)) {
-			log.WithField("imagebase", image).Debug("support container image found")
+			log.WithField("imageBase", image).Debug("support container image found")
 			return true
 		}
 	}
 	// default
-	log.WithField("imagebase", image).Debug("support container image not found")
+	log.WithField("imageBase", image).Debug("support container image not found")
 	return false
 }
 

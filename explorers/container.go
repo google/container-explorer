@@ -16,11 +16,14 @@ limitations under the License.
 
 package explorers
 
-import "github.com/containerd/containerd/containers"
+import (
+	"github.com/containerd/containerd/containers"
+)
 
 // Container provides information about a container.
 type Container struct {
 	Namespace        string
+	Name             string
 	Hostname         string
 	ImageBase        string
 	SupportContainer bool
@@ -28,7 +31,22 @@ type Container struct {
 	ProcessID        int
 	Status           string
 
+	// RuntimeInfo structure
+	// Name 	string
+	// Options	[]string
+
 	// containerd specific fields
+	// containers.Container structure
+	// ID          string
+	// Labels      map[string]string
+	// Image       string
+	// Runtime     RuntimeInfo
+	// Spec        typeurl.Any
+	// Snapshotter string
+	// CreatedAt   time.Time
+	// UpdatedAt   time.Time
+	// Extensions  map[string]typeurl.Any
+	// SandboxID   string
 	containers.Container
 
 	// docker specific fields

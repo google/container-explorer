@@ -20,6 +20,7 @@ import "github.com/containerd/containerd/content"
 
 // Content provides information about containers' content
 type Content struct {
-	Namespace string
+	Namespace     string
+	ContainerType string // Indicate if the container is containerd, docker, podman
 	content.Info
 }
