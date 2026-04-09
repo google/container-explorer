@@ -25,12 +25,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/namespaces"
+
 	"github.com/google/container-explorer/explorers"
+	"github.com/google/container-explorer/utils"
 
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 
@@ -39,33 +40,46 @@ import (
 )
 
 type explorer struct {
-	imageroot  string                      // mounted image path
-	root       string                      // containerd root
-	manifest   string                      // path to manifest database file i.e. meta.db
-	snapshot   string                      // path to snapshot database file i.e. metadata.db
-	layercache string                      // layer cache folder within snapshot root
-	mdb        *bolt.DB                    // manifest database
-	sc         *explorers.SupportContainer // support container structure object
+	imageRoot      string // mounted image path
+	containerdRoot string
+	dockerRoot     string
+	//	root           string // containerd root
+	manifestFile string // path to manifest database file i.e. meta.db
+	snapshotFile string
+	layercache   string                      // layer cache folder within snapshot root
+	mdb          *bolt.DB                    // manifest database
+	sc           *explorers.SupportContainer // support container structure object
 }
 
 // NewExplorer returns a ContainerExplorer interface to explore containerd.
-func NewExplorer(imageroot string, root string, manifest string, snapshot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
+// func NewExplorer(imageroot string, root string, manifest string, snapshot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
+func NewExplorer(imageRoot string, containerdRoot string, dockerRoot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
 	opt := &bolt.Options{
 		ReadOnly: true,
 	}
-	db, err := bolt.Open(manifest, 0444, opt)
+
+	if _, err := utils.PathExists(containerdRoot); err != nil {
+		return nil, fmt.Errorf("contained root directory does not exist")
+	}
+
+	manifestFile := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt", "meta.db")
+	if _, err := utils.PathExists(manifestFile); err != nil {
+		return nil, fmt.Errorf("containerd manifest file meta.db does not exist")
+	}
+
+	db, err := bolt.Open(manifestFile, 0444, opt)
 	if err != nil {
 		return &explorer{}, err
 	}
 
 	return &explorer{
-		imageroot:  imageroot,
-		root:       root,
-		manifest:   manifest,
-		snapshot:   snapshot,
-		layercache: layercache,
-		mdb:        db,
-		sc:         sc,
+		imageRoot:      imageRoot,
+		containerdRoot: containerdRoot,
+		dockerRoot:     dockerRoot,
+		manifestFile:   manifestFile,
+		layercache:     layercache,
+		mdb:            db,
+		sc:             sc,
 	}, nil
 }
 
@@ -77,8 +91,12 @@ func NewExplorer(imageroot string, root string, manifest string, snapshot string
 // The default snapshot root directrion location for containerd is
 // /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs
 func (e *explorer) SnapshotRoot(snapshotter string) string {
-	dirs, _ := filepath.Glob(filepath.Join(e.root, "*"))
-	snapshotRoot := ""
+	if snapshotter == "" {
+		return "unknown"
+	}
+
+	dirs, _ := filepath.Glob(filepath.Join(e.containerdRoot, "*"))
+	snapshotRoot := "unknown"
 	for _, dir := range dirs {
 		if strings.Contains(strings.ToLower(dir), strings.ToLower(snapshotter)) {
 			filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -95,7 +113,7 @@ func (e *explorer) SnapshotRoot(snapshotter string) string {
 			return snapshotRoot
 		}
 	}
-	return "unknown"
+	return snapshotRoot
 }
 
 // ListNamespace returns namespaces.
@@ -124,7 +142,7 @@ func (e *explorer) ListNamespaces(ctx context.Context) ([]string, error) {
 //
 // In containerd the container information is stored in metadata file meta.db.
 func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, error) {
-	var cecontainers []explorers.Container
+	var ceContainers []explorers.Container
 
 	nss, err := e.ListNamespaces(ctx)
 	if err != nil {
@@ -142,29 +160,28 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 		}
 
 		for _, result := range results {
-			cectr := convertToContainerExplorerContainer(ns, result)
-			cectr.ImageBase = imageBasename(cectr.Image)
-			cectr.SupportContainer = e.sc.IsSupportContainer(cectr)
-
-			task, err := e.GetContainerTask(ctx, cectr)
+			ceCtr := convertToContainerExplorerContainer(ns, result)
+			ceCtr.ImageBase = imageBasename(ceCtr.Image)
+			ceCtr.SupportContainer = e.sc.IsSupportContainer(ceCtr)
+			ceTask, err := e.GetContainerTask(ctx, ceCtr)
 			if err != nil {
-				log.WithField("containerid", cectr.ID).Error("failed getting container task")
+				log.WithField("containerID", ceCtr.ID).Error("failed getting container task")
 			}
-			cectr.ProcessID = task.PID
-			cectr.ContainerType = task.ContainerType
-			cectr.Status = task.Status
+			ceCtr.ProcessID = ceTask.PID
+			ceCtr.ContainerType = ceTask.ContainerType
+			ceCtr.Status = ceTask.Status
 
-			cecontainers = append(cecontainers, cectr)
+			ceContainers = append(ceContainers, ceCtr)
 		}
 	}
-	return cecontainers, nil
+	return ceContainers, nil
 }
 
 // ListImages returns the information about content.
 //
 // In containerd, the image information is stored in metadata file meta.db.
 func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
-	var ceimages []explorers.Image
+	var ceImages []explorers.Image
 
 	nss, err := e.ListNamespaces(ctx)
 	if err != nil {
@@ -182,21 +199,22 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 		}
 
 		for _, result := range results {
-			ceimages = append(ceimages, explorers.Image{
+			ceImages = append(ceImages, explorers.Image{
 				Namespace:             ns,
+				ContainerType:         "containerd",
 				SupportContainerImage: e.sc.SupportContainerImage(imageBasename(result.Name)),
 				Image:                 result,
 			})
 		}
 	}
-	return ceimages, nil
+	return ceImages, nil
 }
 
 // ListContent returns the information about content.
 //
 // In containerd, the content information is stored in metadata file meta.db.
 func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error) {
-	var cecontent []explorers.Content
+	var ceContent []explorers.Content
 
 	nss, err := e.ListNamespaces(ctx)
 	if err != nil {
@@ -214,14 +232,14 @@ func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error)
 		}
 
 		for _, result := range results {
-			cecontent = append(cecontent, explorers.Content{
+			ceContent = append(ceContent, explorers.Content{
 				Namespace: ns,
 				Info:      result,
 			})
 		}
 	}
 
-	return cecontent, nil
+	return ceContent, nil
 }
 
 // ListSnapshots returns the snapshot information.
@@ -245,7 +263,7 @@ func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error)
 //
 // Snapshot ID is required when mounting the container.
 func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyInfo, error) {
-	var cesnapshots []explorers.SnapshotKeyInfo
+	var ceSnapshots []explorers.SnapshotKeyInfo
 
 	nss, err := e.ListNamespaces(ctx)
 	if err != nil {
@@ -256,14 +274,18 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 	opts := bolt.Options{
 		ReadOnly: true,
 	}
-	ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"snapshotfile": e.snapshot,
-		}).Error(err)
+
+	var ssdb *bolt.DB
+	if e.snapshotFile != "" {
+		ssdb, err = bolt.Open(e.snapshotFile, 0444, &opts)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"snapshotFile": e.snapshotFile,
+			}).Error(err)
+		}
 	}
 
-	store := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
+	store := NewSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssdb)
 
 	for _, ns := range nss {
 		ctx = namespaces.WithNamespace(ctx, ns)
@@ -273,36 +295,36 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 			return nil, err
 		}
 
-		cesnapshots = append(cesnapshots, results...)
+		ceSnapshots = append(ceSnapshots, results...)
 	}
 
-	return cesnapshots, nil
+	return ceSnapshots, nil
 }
 
 // ListTasks returns container tasks status
 func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
-	if e.imageroot == "" {
-		log.Error("image-root is empty. Unable to list tasks.")
+	if e.imageRoot == "" {
+		log.Error("image-root is empty: unable to list tasks")
 		return nil, nil
 	}
 
 	// Holds container task information.
-	var cetasks []explorers.Task
+	var ceTasks []explorers.Task
 
 	ctrs, err := e.ListContainers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 	for _, ctr := range ctrs {
-		cetask, err := e.GetContainerTask(ctx, ctr)
+		ceTask, err := e.GetContainerTask(ctx, ctr)
 		if err != nil {
 			return nil, fmt.Errorf("failed getting a container's task: %w", err)
 		}
 
-		cetasks = append(cetasks, cetask)
+		ceTasks = append(ceTasks, ceTask)
 	}
 
-	return cetasks, nil
+	return ceTasks, nil
 }
 
 // GetContainerTask returns container task
@@ -314,96 +336,96 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 	if err != nil {
 		return explorers.Task{}, fmt.Errorf("failed getting container spec for %s container: %w", ctr.ID, err)
 	}
-	ctrspec := v.(spec.Spec)
+	ctrSpec := v.(spec.Spec)
 
-	var cgroupspath string
-	var containertype string
+	var cgroupsPath string
+	var containerType string
 
 	// Compute cgroup path for docker and containerd containers
-	if strings.Contains(ctrspec.Linux.CgroupsPath, "docker") {
-		containertype = "docker"
+	if strings.Contains(ctrSpec.Linux.CgroupsPath, "docker") {
+		containerType = "docker"
 
 		// compute for docker
 		//
 		// Spec file `config.json` contains key cgroupsPath as `system.slice:docker:<container_id>`.
 		// The path maps on file system to `/sys/fs/cgroup/system.slice/docker-<container_id>.scope`.
-		m := strings.Split(ctrspec.Linux.CgroupsPath, ":")
+		m := strings.Split(ctrSpec.Linux.CgroupsPath, ":")
 		if len(m) != 3 {
 			return explorers.Task{}, fmt.Errorf("expecting pattern system.slice:docker:<container_id> and got %d fields", len(m))
 		}
 
 		// docker cgroup directory i.e. system.slice
-		cgroupns := m[0]
+		cgroupNS := m[0]
 		// container cgroup information
-		cgroupctrdir := fmt.Sprintf("%s-%s.scope", m[1], m[2])
+		cgroupCtrDir := fmt.Sprintf("%s-%s.scope", m[1], m[2])
 		// abolute path to container cgroup directory
-		cgroupspath = filepath.Join(e.imageroot, "sys", "fs", "cgroup", cgroupns, cgroupctrdir)
+		cgroupsPath = filepath.Join(e.imageRoot, "sys", "fs", "cgroup", cgroupNS, cgroupCtrDir)
 	} else {
-		containertype = "containerd"
+		containerType = "containerd"
 
 		// compute for containerd
 		//
 		// Spec file contains "cgroupsPath": "/default/<container_id>",
-		cgroupspath = filepath.Join(e.imageroot, "sys", "fs", "cgroup", ctrspec.Linux.CgroupsPath)
+		cgroupsPath = filepath.Join(e.imageRoot, "sys", "fs", "cgroup", ctrSpec.Linux.CgroupsPath)
 	}
 
 	// Verify the path actually exist on the system.
 	// If a container is deleted then cgroup may not exist for the container
-	if !explorers.PathExists(cgroupspath, false) {
+	if !explorers.PathExists(cgroupsPath, false) {
 		log.WithFields(log.Fields{
-			"containerid": ctr.ID,
-			"cgroupspath": cgroupspath,
+			"containerID": ctr.ID,
+			"cgroupsPath": cgroupsPath,
 		}).Debug("container cgroup path does not exit")
 
 		return explorers.Task{
 			Namespace:     ctr.Namespace,
 			Name:          ctr.ID,
-			ContainerType: containertype,
+			ContainerType: containerType,
 			Status:        "UNKNOWN",
 		}, nil
 	}
 
-	status, err := explorers.GetTaskStatus(cgroupspath)
+	status, err := explorers.GetTaskStatus(cgroupsPath)
 	if err != nil {
 		// Only print the error message.
 		// The default return should contain status UNKNOWN
-		log.WithField("containerid", ctr.ID).Error("failed getting container status for container: ", err)
+		log.WithField("containerID", ctr.ID).Errorf("failed getting container status for container: %v", err)
 	}
 
 	// Get container process ID
-	ctrpid := explorers.GetTaskPID(cgroupspath)
-	if ctrpid == -1 && containertype == "containerd" {
+	ctrPID := explorers.GetTaskPID(cgroupsPath)
+	if ctrPID == -1 && containerType == "containerd" {
 		state, err := e.GetContainerState(ctx, ctr)
 		if err != nil {
-			log.WithField("containerid", ctr.ID).Error("failed getting container state")
+			log.WithField("containerID", ctr.ID).Error("failed getting container state")
 		}
 		if state.InitProcessPid != 0 {
-			ctrpid = state.InitProcessPid
+			ctrPID = state.InitProcessPid
 		}
 	}
 
 	return explorers.Task{
 		Namespace:     ctr.Namespace,
 		Name:          ctr.ID,
-		PID:           ctrpid,
-		ContainerType: containertype,
+		PID:           ctrPID,
+		ContainerType: containerType,
 		Status:        status,
 	}, nil
 }
 
 // GetContainerState returns container runtime state
 func (e *explorer) GetContainerState(ctx context.Context, ctr explorers.Container) (explorers.State, error) {
-	statedir := filepath.Join(e.imageroot, "run", "containerd", "runc", ctr.Namespace, ctr.ID)
-	if !explorers.PathExists(statedir, false) {
-		return explorers.State{}, fmt.Errorf("container state directory %s did not exist", statedir)
+	stateDir := filepath.Join(e.imageRoot, "run", "containerd", "runc", ctr.Namespace, ctr.ID)
+	if !explorers.PathExists(stateDir, false) {
+		return explorers.State{}, fmt.Errorf("container state directory %s did not exist", stateDir)
 	}
 
-	statefile := filepath.Join(statedir, "state.json")
-	if !explorers.PathExists(statefile, true) {
-		return explorers.State{}, fmt.Errorf("container state file %s did not exist", statefile)
+	stateFile := filepath.Join(stateDir, "state.json")
+	if !explorers.PathExists(stateFile, true) {
+		return explorers.State{}, fmt.Errorf("container state file %s did not exist", stateFile)
 	}
 
-	data, err := os.ReadFile(statefile)
+	data, err := os.ReadFile(stateFile)
 	if err != nil {
 		return explorers.State{}, err
 	}
@@ -415,13 +437,31 @@ func (e *explorer) GetContainerState(ctx context.Context, ctr explorers.Containe
 	return state, nil
 }
 
-// InfoContainer returns container internal information.
-func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error) {
+// getContainerStoreInfo finds the container across all namespaces and returns it and its namespace
+func (e *explorer) getContainerStoreInfo(ctx context.Context, containerID string) (containers.Container, string, error) {
+	nss, err := e.ListNamespaces(ctx)
+	if err != nil {
+		return containers.Container{}, "", err
+	}
+
 	store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
 
-	container, err := store.Get(ctx, containerid)
+	for _, ns := range nss {
+		nsCtx := namespaces.WithNamespace(ctx, ns)
+		container, err := store.Get(nsCtx, containerID)
+		if err == nil {
+			return container, ns, nil
+		}
+	}
+
+	return containers.Container{}, "", fmt.Errorf("no matching container")
+}
+
+// InfoContainer returns container internal information.
+func (e *explorer) InfoContainer(ctx context.Context, containerID string, spec bool) (any, error) {
+	container, _, err := e.getContainerStoreInfo(ctx, containerID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting container %s: %w", containerID, err)
 	}
 
 	if container.Spec != nil && container.Spec.GetValue() != nil {
@@ -438,7 +478,7 @@ func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec b
 		// Return container and spec info
 		return struct {
 			containers.Container
-			Spec interface{} `json:"Spec,omitempty"`
+			Spec any `json:"Spec,omitempty"`
 		}{
 			Container: container,
 			Spec:      v,
@@ -450,49 +490,51 @@ func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec b
 }
 
 // MountContainer mounts a container to the specified path
-func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
-	store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
-
-	container, err := store.Get(ctx, containerid)
+func (e *explorer) MountContainer(ctx context.Context, containerID string, mountpoint string) error {
+	container, ns, err := e.getContainerStoreInfo(ctx, containerID)
 	if err != nil {
 		return fmt.Errorf("failed getting container information %v", err)
 	}
+
+	ctx = namespaces.WithNamespace(ctx, ns)
 
 	// Snapshot database metadata.db access
 	opts := bolt.Options{
 		ReadOnly: true,
 	}
 
-	if e.snapshot == "" {
+	if e.snapshotFile == "" {
 		snapshotterFolder := e.SnapshotRoot(container.Snapshotter)
 		if snapshotterFolder != "unknown" {
-			e.snapshot = filepath.Join(snapshotterFolder, "metadata.db")
+			e.snapshotFile = filepath.Join(snapshotterFolder, "metadata.db")
 		}
 	}
 
 	log.WithFields(log.Fields{
-		"snapshotter":       container.Snapshotter,
-		"snapshotKey":       container.SnapshotKey,
-		"image":             container.Image,
-		"snapshotterFolder": e.snapshot,
-	}).Debug("container snapshotter")
+		"containerID":     containerID,
+		"namespace":       ns,
+		"snapshotter":     container.Snapshotter,
+		"snapshotKey":     container.SnapshotKey,
+		"image":           container.Image,
+		"snapshotterFile": e.snapshotFile,
+	}).Debug("containerd container snapshotter")
 
-	ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
+	ssDB, err := bolt.Open(e.snapshotFile, 0444, &opts)
 	if err != nil {
-		return fmt.Errorf("failed to open snapshot database %v", err)
+		return fmt.Errorf("failed opening %s snapshot database %v", container.Snapshotter, err)
 	}
 
 	// snapshot store
-	ssstore := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
+	ssStore := NewSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssDB)
 	var mountArgs []string
 	hasWorkDir := false
-	snapshotRoot, _ := filepath.Split(e.snapshot)
+	snapshotRoot, _ := filepath.Split(e.snapshotFile)
 	matches, _ := filepath.Glob(filepath.Join(snapshotRoot, "snapshots/*/work"))
 	if len(matches) > 0 {
 		hasWorkDir = true
 	}
 	if container.Snapshotter == "native" {
-		upperdir, err := ssstore.NativePath(ctx, container)
+		upperdir, err := ssStore.NativePath(ctx, container)
 		log.WithFields(log.Fields{
 			"upperdir": upperdir,
 		}).Debug("native directories")
@@ -501,7 +543,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 		}
 		mountArgs = []string{"-t", "bind", upperdir, mountpoint, "-o", "rbind,ro"}
 	} else if hasWorkDir {
-		lowerdir, upperdir, workdir, err := ssstore.OverlayPath(ctx, container)
+		lowerdir, upperdir, workdir, err := ssStore.OverlayPath(ctx, container)
 		log.WithFields(log.Fields{
 			"lowerdir": lowerdir,
 			"upperdir": upperdir,
@@ -520,7 +562,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 		mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", upperdir, lowerdir)
 		mountArgs = []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
 	} else {
-		log.Error("Unsupported snapshotter ", container.Snapshotter)
+		log.Errorf("unsupported snapshotter: %s", container.Snapshotter)
 	}
 
 	log.Debug("container mount command ", mountArgs)
@@ -528,17 +570,15 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	cmd := exec.Command("mount", mountArgs...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Errorf("running mount command %v", err)
+		log.Errorf("running mount command: %v", err)
 
-		if strings.Contains(err.Error(), " 32") {
-			log.Error("invalid overlayfs lowerdir path. Use --debug to view lowerdir path")
-		}
+			log.Error("invalid overlayfs lowerdir path: use --debug to view lowerdir path")
 
 		return err
 	}
 
 	if string(out) != "" {
-		log.Info("mount command output ", string(out))
+		log.Infof("mount command output: %s", string(out))
 	}
 
 	// default
@@ -559,8 +599,8 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 		if skipsupportcontainers && ctr.SupportContainer {
 			log.WithFields(log.Fields{
 				"namespace":   ctr.Namespace,
-				"containerid": ctr.ID,
-			}).Info("skip mounting Kubernetes containers")
+				"containerID": ctr.ID,
+			}).Info("skipping Kubernetes containers")
 
 			continue
 		}
@@ -596,16 +636,16 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 		if err := os.MkdirAll(ctrmountpoint, 0755); err != nil {
 			log.WithFields(log.Fields{
 				"namespace":   ctr.Namespace,
-				"containerid": ctr.ID,
+				"containerID": ctr.ID,
 				"mountpoint":  mountpoint,
 			}).Error("creating mount point for a container")
 
-			log.WithField("containerid", ctr.ID).Warn("skipping container mount")
+			log.WithField("containerID", ctr.ID).Warn("skipping container mount")
 			continue
 		}
 
 		// Clear snapshot database for each container
-		e.snapshot = ""
+		e.snapshotFile = ""
 		ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
 		if err := e.MountContainer(ctx, ctr.ID, ctrmountpoint); err != nil {
 			return err
@@ -614,58 +654,6 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 
 	// default
 	return nil
-}
-
-// ScanDiffDirectory identifies added or modified files in the diff directory
-func ScanDiffDirectory(diffDir string) (addedOrModified []explorers.FileInfo, inaccessibleFiles []explorers.FileInfo, err error) {
-	err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			if fileinfo, err := explorers.GetFileInfo(info, path, diffDir); err == nil {
-				inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
-			}
-
-			return nil // Continue walking despite the error
-		}
-		if !info.IsDir() {
-			fileinfo, err := explorers.GetFileInfo(info, path, diffDir)
-			if err != nil {
-				return err
-			}
-
-			// Check if the file is a whiteout files
-			if info.Mode()&os.ModeCharDevice != 0 {
-				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-					rdev := stat.Rdev
-
-					// Extract major and minor device numbers
-					major := (rdev >> 8) & 0xfff
-					minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
-
-					if major == 0 && minor == 0 {
-						// This is a whiteout file
-						inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
-
-						return nil
-					}
-				}
-			}
-
-			// Check if the file is not a symbolic link
-			if info.Mode()&os.ModeSymlink == 0 {
-				// Check if the file has executable permissions
-				mode := info.Mode().Perm()
-				if mode&0111 != 0 {
-					// The file is executable by owner, group, or others
-					fileinfo.FileType = "executable"
-				}
-			}
-
-			addedOrModified = append(addedOrModified, *fileinfo)
-		}
-		return nil
-	})
-
-	return
 }
 
 // ContainerDrift finds drifted files from all the containers
@@ -679,6 +667,12 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 	filters := strings.Split(filter, ",")
 
 	for _, ctr := range ctrs {
+		// Temporary fix to remove duplicate errors for Docker engine 29 containers
+		// TODO: Build support for Docker engine 29.
+		if ctr.Namespace == "moby" {
+			continue
+		}
+
 		// If containerID is supplied & doesn't match skip
 		if containerID != "" && ctr.ID != containerID {
 			continue
@@ -688,8 +682,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 		if skipsupportcontainers && ctr.SupportContainer {
 			log.WithFields(log.Fields{
 				"namespace":   ctr.Namespace,
-				"containerid": ctr.ID,
-			}).Info("skip mounting Kubernetes containers")
+				"containerID": ctr.ID,
+			}).Info("skipping Kubernetes containers")
 
 			continue
 		}
@@ -720,38 +714,40 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			continue
 		}
 
-		e.snapshot = ""
+		e.snapshotFile = ""
 		ctx = namespaces.WithNamespace(ctx, ctr.Namespace)
 		store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
 
 		container, err := store.Get(ctx, ctr.ID)
 		if err != nil {
-			return nil, fmt.Errorf("failed getting container information %v", err)
+			log.WithFields(log.Fields{"containerID": ctr.ID, "error": err}).Error("getting container information")
+			continue
 		}
 		// Snapshot database metadata.db access
 		opts := bolt.Options{
 			ReadOnly: true,
 		}
-		if e.snapshot == "" {
+		if e.snapshotFile == "" {
 			snapshotterFolder := e.SnapshotRoot(container.Snapshotter)
 			if snapshotterFolder != "unknown" {
-				e.snapshot = filepath.Join(snapshotterFolder, "metadata.db")
+				e.snapshotFile = filepath.Join(snapshotterFolder, "metadata.db")
 			}
 		}
 		log.WithFields(log.Fields{
 			"snapshotter":       container.Snapshotter,
 			"snapshotKey":       container.SnapshotKey,
 			"image":             container.Image,
-			"snapshotterFolder": e.snapshot,
+			"snapshotterFolder": e.snapshotFile,
 		}).Debug("container snapshotter")
-		ssdb, err := bolt.Open(e.snapshot, 0444, &opts)
+		ssdb, err := bolt.Open(e.snapshotFile, 0444, &opts)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open snapshot database %v", err)
+			log.WithFields(log.Fields{"containerID": ctr.ID, "error": err}).Error("failed to open snapshot database")
+			continue
 		}
 		// snapshot store
-		ssstore := NewSnaptshotStore(e.root, e.layercache, e.mdb, ssdb)
+		ssstore := NewSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssdb)
 		hasWorkDir := false
-		snapshotRoot, _ := filepath.Split(e.snapshot)
+		snapshotRoot, _ := filepath.Split(e.snapshotFile)
 		matches, _ := filepath.Glob(filepath.Join(snapshotRoot, "snapshots/*/work"))
 		if len(matches) > 0 {
 			hasWorkDir = true
@@ -762,7 +758,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				"upperdir": upperdir,
 			}).Debug("native directories")
 			if err != nil {
-				return nil, fmt.Errorf("failed to get native path %v", err)
+				log.WithFields(log.Fields{"containerID": ctr.ID, "error": err}).Error("failed to get native path")
+				continue
 			}
 		} else if hasWorkDir {
 			lowerdir, upperdir, workdir, err := ssstore.OverlayPath(ctx, container)
@@ -773,19 +770,22 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			}).Debug("overlay directories")
 
 			log.WithFields(log.Fields{
-				"container ID": ctr.ID,
-			}).Debug("Checking drift for container")
+				"containerID": ctr.ID,
+			}).Debug("checking container drift")
 			if err != nil {
-				return nil, fmt.Errorf("failed to get overlay path %v", err)
+				log.WithFields(log.Fields{"containerID": ctr.ID, "error": err}).Error("failed to get overlay path")
+				continue
 			}
 			if lowerdir == "" {
-				return nil, fmt.Errorf("lowerdir is empty")
+				log.WithFields(log.Fields{"containerID": ctr.ID}).Error("lowerdir is empty")
+				continue
 			}
 
 			// Scan upperdir
-			addedOrModified, inaccessibleFiles, err := ScanDiffDirectory(upperdir)
+			addedOrModified, inaccessibleFiles, err := explorers.ScanDiffDirectory(upperdir)
 			if err != nil {
-				return nil, fmt.Errorf("failed to scan diff directory: %v", err)
+				log.WithFields(log.Fields{"containerID": ctr.ID, "error": err}).Error("failed to scan diff directory")
+				continue
 			}
 
 			drift := explorers.Drift{
@@ -808,7 +808,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				}
 			}
 		} else {
-			log.Error("Unsupported snapshotter ", container.Snapshotter)
+			log.Error("unsupported snapshotter ", container.Snapshotter)
 		}
 	}
 
@@ -819,6 +819,26 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 // Close releases the internal resources
 func (e *explorer) Close() error {
 	return e.mdb.Close()
+}
+
+func (e *explorer) GetContainerByID(ctx context.Context, containerID string) (*explorers.Container, error) {
+	container, ns, err := e.getContainerStoreInfo(ctx, containerID)
+	if err != nil {
+		return nil, err
+	}
+
+	cectr := convertToContainerExplorerContainer(ns, container)
+	cectr.ImageBase = imageBasename(cectr.Image)
+	cectr.SupportContainer = e.sc.IsSupportContainer(cectr)
+	task, err := e.GetContainerTask(ctx, cectr)
+	if err != nil {
+		log.WithField("containerID", cectr.ID).Error("failed getting container task")
+	}
+	cectr.ProcessID = task.PID
+	cectr.ContainerType = task.ContainerType
+	cectr.Status = task.Status
+
+	return &cectr, nil
 }
 
 // convertToContainerExplorerContainer returns a Container object which is
@@ -855,13 +875,14 @@ func convertToContainerExplorerContainer(ns string, ctr containers.Container) ex
 
 	return explorers.Container{
 		Namespace: ns,
+		Name:      ctr.ID,
 		Hostname:  hostname,
 		Container: ctr,
 	}
 }
 
 // parseSpec parses containerd spec and returns the information as JSON.
-func parseSpec(data []byte) (interface{}, error) {
+func parseSpec(data []byte) (any, error) {
 	var v spec.Spec
 	json.Unmarshal(data, &v)
 	return v, nil
