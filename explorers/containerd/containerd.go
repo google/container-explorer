@@ -43,7 +43,6 @@ type explorer struct {
 	imageRoot      string // mounted image path
 	containerdRoot string
 	dockerRoot     string
-	//	root           string // containerd root
 	manifestFile string // path to manifest database file i.e. meta.db
 	snapshotFile string
 	layercache   string                      // layer cache folder within snapshot root
@@ -52,7 +51,6 @@ type explorer struct {
 }
 
 // NewExplorer returns a ContainerExplorer interface to explore containerd.
-// func NewExplorer(imageroot string, root string, manifest string, snapshot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
 func NewExplorer(imageRoot string, containerdRoot string, dockerRoot string, layercache string, sc *explorers.SupportContainer) (explorers.ContainerExplorer, error) {
 	opt := &bolt.Options{
 		ReadOnly: true,
@@ -88,15 +86,15 @@ func NewExplorer(imageRoot string, containerdRoot string, dockerRoot string, lay
 // Containerd requires snapshot database metadata.db which is stored within
 // the snapshot root directory.
 //
-// The default snapshot root directrion location for containerd is
+// The default snapshot root directory location for containerd is
 // /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs
 func (e *explorer) SnapshotRoot(snapshotter string) string {
+	snapshotRoot := "unknown"
 	if snapshotter == "" {
-		return "unknown"
+		return snapshotRoot
 	}
 
 	dirs, _ := filepath.Glob(filepath.Join(e.containerdRoot, "*"))
-	snapshotRoot := "unknown"
 	for _, dir := range dirs {
 		if strings.Contains(strings.ToLower(dir), strings.ToLower(snapshotter)) {
 			filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
