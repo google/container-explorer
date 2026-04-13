@@ -27,18 +27,19 @@ import (
 // SnapshotKeyInfo contains information found in containerd
 // metadata (meta.db) and snapshot database (metadata.db).
 type SnapshotKeyInfo struct {
-	Namespace   string            // namespace only used in meta.db
-	Snapshotter string            // only used in meta.db
-	Key         string            // snapshot key
-	ID          uint64            // File system ID. Only used in metadata.db
-	Name        string            // snapshot name. Only used in meta.db
-	Parent      string            // snapshot parent
-	Kind        snapshots.Kind    // snapshot kind
-	Inodes      []int64           // Inode numbers. Only in metadata.db
-	Size        uint64            // Only in metadata.db
-	OverlayPath string            // Custom field added by container explorer
-	Labels      map[string]string // mapped labels
-	Children    []string          // array of <snapshot key>. Only in meta.db
-	CreatedAt   time.Time         // created timestamp
-	UpdatedAt   time.Time         // updated timestamp
+	ContainerType string            // container type: containerd, docker, podman, etc.
+	Namespace     string            // namespace only used in meta.db
+	Snapshotter   string            // only used in meta.db
+	Key           string            // snapshot key
+	ID            uint64            // File system ID. Only used in metadata.db
+	Name          string            // snapshot name. Only used in meta.db
+	Parent        string            // snapshot parent
+	Kind          snapshots.Kind    // snapshot kind
+	Inodes        []int64           // Inode numbers. Only in metadata.db
+	Size          uint64            // Only in metadata.db
+	OverlayPath   string            // Custom field added by container explorer
+	Labels        map[string]string // mapped labels
+	Children      []string          // array of <snapshot key>. Only in meta.db
+	CreatedAt     time.Time         // created timestamp
+	UpdatedAt     time.Time         // updated timestamp
 }

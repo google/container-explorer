@@ -53,10 +53,10 @@ func getSnapshottersBucket(tx *bolt.Tx, namespace string) *bolt.Bucket {
 	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectSnapshots)
 }
 
-func getSnapshotKeyBucket(tx *bolt.Tx, namespace, snapshotter, snapshotkey string) *bolt.Bucket {
-	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectSnapshots, []byte(snapshotter), []byte(snapshotkey))
+func getsnapshotKeyBucket(tx *bolt.Tx, namespace, snapshotter, snapshotKey string) *bolt.Bucket {
+	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectSnapshots, []byte(snapshotter), []byte(snapshotKey))
 }
 
-func getOverlaySnapshotBucket(tx *bolt.Tx, snapshotkey string) *bolt.Bucket {
-	return getBucket(tx, bucketKeyVersion, bucketKeyObjectSnapshots, []byte(snapshotkey))
+func getOverlaySnapshotBucket(tx *bolt.Tx, snapshotKey string) *bolt.Bucket {
+	return getBucket(tx, bucketKeyVersion, bucketKeyObjectSnapshots, []byte(snapshotKey))
 }

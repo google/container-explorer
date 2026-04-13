@@ -56,7 +56,7 @@ type snapshotStore struct {
 // Snapshot path in snapshot database: metadata.db/v1/snapshots/<snapshot key>
 //   - id - Snapshot file system ID i.e. /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/<id>/fs
 //   - kind - ACTIVE vs COMMITTED
-func NewSnaptshotStore(root string, layercache string, db *bolt.DB, sdb *bolt.DB) *snapshotStore {
+func NewSnapshotStore(root string, layercache string, db *bolt.DB, sdb *bolt.DB) *snapshotStore {
 	return &snapshotStore{
 		root:       root,
 		layercache: layercache,
@@ -75,7 +75,7 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 
 	// Overlay snapshot bucket
 	if s.sdb == nil {
-		log.Warn("handle to snapshot database does not exist")
+		log.Debug("snapshot database handle does not exist")
 	}
 
 	var skinfos []explorers.SnapshotKeyInfo
@@ -101,9 +101,10 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 			return ssbkt.ForEach(func(k1, v1 []byte) error {
 				var (
 					skinfo = explorers.SnapshotKeyInfo{
-						Namespace:   namespace,
-						Snapshotter: string(k),
-						Key:         string(k1),
+						ContainerType: "containerd",
+						Namespace:     namespace,
+						Snapshotter:   string(k),
+						Key:           string(k1),
 					}
 
 					// snapshot key bucket that contains information about a
@@ -111,7 +112,7 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 					kbkt = ssbkt.Bucket(k1)
 				)
 
-				if err := readMetaSnapshotKey(&skinfo, kbkt); err != nil {
+				if err := readMetasnapshotKey(&skinfo, kbkt); err != nil {
 					return err
 				}
 
@@ -130,7 +131,7 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 							}).Info("empty metata.db snapshot key bucket")
 							return nil
 						}
-						readOverlaySnapshotKey(&skinfo, skbkt)
+						readOverlaysnapshotKey(&skinfo, skbkt)
 
 						return nil
 					})
@@ -155,9 +156,9 @@ func (s *snapshotStore) NativePath(ctx context.Context, container containers.Con
 		return "", fmt.Errorf("snapshot database handler (metadata.db) is nil")
 	}
 
-	snapshotkeys, err := s.SnapshotKeys(ctx, container)
+	snapshotKeys, err := s.snapshotKeys(ctx, container)
 	if err != nil {
-		return "", fmt.Errorf("could not get snapshot keys for container ", container.ID)
+		return "", fmt.Errorf("could not get snapshot keys for container %s", container.ID)
 	}
 
 	var (
@@ -166,13 +167,13 @@ func (s *snapshotStore) NativePath(ctx context.Context, container containers.Con
 	)
 
 	snapshotroot = snapshotRootDir(s.root, container.Snapshotter)
-	// Read snapshot metadata (metadata.db) snapshotkey bucket
+	// Read snapshot metadata (metadata.db) snapshotKey bucket
 	// and extract value of key "id".
 	//
 	// The value of "id" specifies snapshot path in overlayfs
 	// i.e. /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/<id>/fs
 	if err := s.sdb.View(func(tx *bolt.Tx) error {
-		upperdirID, err := getSnapshotID(tx, snapshotkeys[0])
+		upperdirID, err := getSnapshotID(tx, snapshotKeys[0])
 		if err != nil {
 			return err
 		}
@@ -190,9 +191,9 @@ func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Co
 		return "", "", "", fmt.Errorf("snapshot database handler (metadata.db) is nil")
 	}
 
-	snapshotkeys, err := s.SnapshotKeys(ctx, container)
+	snapshotKeys, err := s.snapshotKeys(ctx, container)
 	if err != nil {
-		return "", "", "", fmt.Errorf("could not get snapshot keys for container ", container.ID)
+		return "", "", "", fmt.Errorf("could not get snapshot keys for container %s", container.ID)
 	}
 
 	var (
@@ -203,13 +204,13 @@ func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Co
 	)
 
 	snapshotroot = snapshotRootDir(s.root, container.Snapshotter)
-	// Read snapshot metadata (metadata.db) snapshotkey bucket
+	// Read snapshot metadata (metadata.db) snapshotKey bucket
 	// and extract value of key "id".
 	//
 	// The value of "id" specifies snapshot path in overlayfs
 	// i.e. /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/<id>/fs
 	if err := s.sdb.View(func(tx *bolt.Tx) error {
-		upperdirID, err := getSnapshotID(tx, snapshotkeys[0])
+		upperdirID, err := getSnapshotID(tx, snapshotKeys[0])
 		if err != nil {
 			return err
 		}
@@ -229,7 +230,7 @@ func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Co
 		}
 
 		// compute lowerdir
-		for _, ssk := range snapshotkeys[1:] {
+		for _, ssk := range snapshotKeys[1:] {
 			id, err := getSnapshotID(tx, ssk)
 			if err != nil {
 				return err
@@ -262,32 +263,32 @@ func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Co
 	return lowerdir, upperdir, workdir, nil
 }
 
-// SnapshotKeys returns the snapshot keys for a container.
-func (s *snapshotStore) SnapshotKeys(ctx context.Context, container containers.Container) ([]string, error) {
+// snapshotKeys returns the snapshot keys for a container.
+func (s *snapshotStore) snapshotKeys(ctx context.Context, container containers.Container) ([]string, error) {
 	namespace, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get namespace from context %v", err)
 	}
-	var snapshotkeys []string
+	var snapshotKeys []string
 
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		ssk := container.SnapshotKey
 
 		for {
-			bkt := getSnapshotKeyBucket(tx, namespace, container.Snapshotter, ssk)
+			bkt := getsnapshotKeyBucket(tx, namespace, container.Snapshotter, ssk)
 			log.WithFields(log.Fields{
 				"namespace":   namespace,
 				"snapshotter": container.Snapshotter,
-				"snapshotkey": ssk,
+				"snapshotKey": ssk,
 			}).Debug("snapshot key bucket")
 			if bkt == nil {
-				return fmt.Errorf("empty meta.db snapshotkey bucket")
+				return fmt.Errorf("empty meta.db snapshotKey bucket")
 			}
 
 			name := string(bkt.Get(bucketKeyName))
 			parent := string(bkt.Get(bucketKeyParent))
 
-			snapshotkeys = append(snapshotkeys, name)
+			snapshotKeys = append(snapshotKeys, name)
 
 			if parent == "" {
 				break
@@ -299,11 +300,11 @@ func (s *snapshotStore) SnapshotKeys(ctx context.Context, container containers.C
 	}); err != nil {
 		return nil, err
 	}
-	return snapshotkeys, nil
+	return snapshotKeys, nil
 }
 
-// readMetaSnapshotKey parses the snapshot key key-value pairs in meta.db
-func readMetaSnapshotKey(skinfo *explorers.SnapshotKeyInfo, bkt *bolt.Bucket) error {
+// readMetasnapshotKey parses the snapshot key key-value pairs in meta.db
+func readMetasnapshotKey(skinfo *explorers.SnapshotKeyInfo, bkt *bolt.Bucket) error {
 	boltutil.ReadTimestamps(bkt, &skinfo.CreatedAt, &skinfo.UpdatedAt)
 
 	skinfo.Name = string(bkt.Get(bucketKeyName))
@@ -313,8 +314,8 @@ func readMetaSnapshotKey(skinfo *explorers.SnapshotKeyInfo, bkt *bolt.Bucket) er
 	return nil
 }
 
-// readOverlaySnapshotKey parses the snapshot key key-value pairs in metadata.db
-func readOverlaySnapshotKey(skinfo *explorers.SnapshotKeyInfo, bkt *bolt.Bucket) error {
+// readOverlaysnapshotKey parses the snapshot key key-value pairs in metadata.db
+func readOverlaysnapshotKey(skinfo *explorers.SnapshotKeyInfo, bkt *bolt.Bucket) error {
 	boltutil.ReadTimestamps(bkt, &skinfo.CreatedAt, &skinfo.UpdatedAt)
 
 	parent := string(bkt.Get(bucketKeyParent))
@@ -355,10 +356,10 @@ func readOverlaySnapshotKey(skinfo *explorers.SnapshotKeyInfo, bkt *bolt.Bucket)
 // getSnapshotID returns snapshot key ID.
 //
 // This returns value of metadata.db/v1/snapshots/<snapshot key>/id
-func getSnapshotID(tx *bolt.Tx, snapshotkey string) (uint64, error) {
-	bkt := getOverlaySnapshotBucket(tx, snapshotkey)
+func getSnapshotID(tx *bolt.Tx, snapshotKey string) (uint64, error) {
+	bkt := getOverlaySnapshotBucket(tx, snapshotKey)
 	if bkt == nil {
-		return 0, fmt.Errorf("empty snapshotkey bucket %s", snapshotkey)
+		return 0, fmt.Errorf("empty snapshotKey bucket %s", snapshotKey)
 	}
 
 	id, _ := binary.Uvarint(bkt.Get(bucketKeyID))
