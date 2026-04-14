@@ -380,7 +380,6 @@ func (e *explorer) InfoContainer(ctx context.Context, containerID string, spec b
 
 	_ = c // Just accessing c for its namespace if needed, although docker config lookup might not strictly need it.
 
-	// Format InfoContainer output similar to containerd
 	return container, nil
 }
 
