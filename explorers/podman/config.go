@@ -20,22 +20,22 @@ type containerMetadata struct {
 	ImageName string `json:"image-name"`
 	ImageID   string `json:"image-id"`
 	Name      string `json:"name"`
-	CreatedAt string `json:"created-at"`
+	CreatedAt int64  `json:"created-at"`
 }
 
-type containerFlag struct {
-	MountLabel   string
-	ProcessLabel string
+type containerFlags struct {
+	MountLabel   string `json:"MountLabel"`
+	ProcessLabel string `json:"ProcessLabel"`
 }
 
 type containerConfig struct {
-	ID       string        `json:"id"`
-	Names    []string      `json:"names"`
-	Image    string        `json:"image"`
-	Layer    string        `json:"layer"`
-	Metadata string        `json:"metadata"`
-	Created  string        `json:"created"`
-	Flags    containerFlag `json:"flags"`
+	ID       string         `json:"id"`
+	Names    []string       `json:"names"`
+	Image    string         `json:"image"`
+	Layer    string         `json:"layer"`
+	Metadata string         `json:"metadata"`
+	Created  string         `json:"created"`
+	Flags    containerFlags `json:"flags"`
 }
 
 type containerImage struct {

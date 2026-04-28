@@ -17,17 +17,17 @@ limitations under the License.
 package utils
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
-	"math/rand"
 	"os"
 	"path/filepath"
-	"time"
 )
 
-// PathExists returns true of specified file or directory exists.
-// If symlink is provided, it returns error.
+// PathExists returns true if the specified file or directory exists.
+// This function follows symbolic links.
 func PathExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -41,25 +41,33 @@ func PathExists(path string) (bool, error) {
 	return false, err
 }
 
+// PathExistsV2 returns true if the path exists.
+// It follows symbolic links and returns false on any error (including permission denied).
+func PathExistsV2(path string) bool {
+	exists, _ := PathExists(path)
+	return exists
+}
+
 const (
-	charset       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 )
 
-var seededRand *rand.Rand = rand.New(
-	rand.NewSource(time.Now().UnixNano()))
-
-// GenerateRandomString creates a random string of a fixed length (6 characters).
+// GenerateRandomString creates a random string of a fixed length.
+// It is thread-safe and uses crypto/rand for high-quality randomness.
 func GenerateRandomString(stringLength int) string {
 	b := make([]byte, stringLength)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return ""
+	}
 	for i := range b {
-		b[i] = charset[seededRand.Intn(len(charset))]
+		b[i] = charset[int(b[i])%len(charset)]
 	}
 	return string(b)
 }
 
 func GetMountPoint() string {
 	mountSuffix := GenerateRandomString(6)
-	mountPoint := filepath.Join("/", "mnt", mountSuffix)
+	mountPoint := filepath.Join(os.TempDir(), "mnt", mountSuffix)
 	return mountPoint
 }
 
@@ -85,10 +93,6 @@ func CalculateDirectorySize(rootPath string) (int64, error) {
 	// If rootPath itself is a symlink to a directory, WalkDir will follow it once.
 	walkErr := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// This error is from WalkDir itself (e.g., permission denied reading a directory).
-			// We'll return it to stop the walk.
-			// You could choose to log this error and return nil to try to continue,
-			// or return filepath.SkipDir if d is a directory.
 			return fmt.Errorf("error accessing path %s: %w", path, err)
 		}
 
@@ -102,12 +106,11 @@ func CalculateDirectorySize(rootPath string) (int64, error) {
 		// d.Info() would give info about the symlink itself, not its target.
 		fileInfo, statErr := os.Stat(path)
 		if statErr != nil {
-			// If it's a broken symlink (os.IsNotExist error and entry is a symlink), skip it.
+			// If it's a broken symlink, skip it.
 			if os.IsNotExist(statErr) && (d.Type()&fs.ModeSymlink != 0) {
 				fmt.Fprintf(os.Stderr, "Warning: skipping broken symlink %s\n", path)
 				return nil // Continue walking
 			}
-			// For other stat errors, stop the walk.
 			return fmt.Errorf("failed to stat %s: %w", path, statErr)
 		}
 

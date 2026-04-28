@@ -46,7 +46,6 @@ const (
 
 type explorer struct {
 	imageroot string
-	conn      *sql.DB
 }
 
 // NewExplorer returns ContainerExplorer interface to explore podman containers.
@@ -75,13 +74,15 @@ func (e *explorer) GetContainerByID(ctx context.Context, containerID string) (*e
 // ListNamespaces returns podman namespaces if exist.
 func (e *explorer) ListNamespaces(ctx context.Context) ([]string, error) {
 	// No namespaces in podman returning nil, nil
+	log.Info("listing namespaces is not supported in podman")
+
 	return nil, nil
 }
 
 // ListSnapshots returns podman containers snapshots.
 func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyInfo, error) {
 	// No snapshots for podman
-	log.Info("listing snapshot is not implemented for podman")
+	log.Info("listing snapshots is not implemented in podman")
 
 	return nil, nil
 }
@@ -89,7 +90,7 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 // SnapshotRoot returns snapshot root directory.
 func (e *explorer) SnapshotRoot(snapshotter string) string {
 	// No snapshot root for podman
-	log.Info("snapshot is not implemented for podman")
+	log.Info("snapshot root concept is not applicable in podman")
 
 	return ""
 }
@@ -113,9 +114,15 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 		var metadata containerMetadata
 
 		for _, config := range configs {
-			json.Unmarshal([]byte(config.Metadata), &metadata)
+			if err := json.Unmarshal([]byte(config.Metadata), &metadata); err != nil {
+				log.WithFields(log.Fields{"containerID": config.ID, "error": err}).Debug("unmarshalling container metadata")
+				continue
+			}
 
-			parsedTime, _ := time.Parse(time.RFC3339Nano, config.Created)
+			parsedTime, err := time.Parse(time.RFC3339Nano, config.Created)
+			if err != nil {
+				log.WithFields(log.Fields{"containerID": config.ID, "error": err}).Debug("parsing container creation time")
+			}
 
 			podmanContainer := explorers.Container{
 				Name:             metadata.Name,
@@ -140,7 +147,7 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 	podmanRootDirs, err := e.getPodmanRootDirs()
 	if err != nil {
-		return nil, fmt.Errorf("getting podman root directories: %v", err)
+		return nil, fmt.Errorf("getting podman root directories: %w", err)
 	}
 
 	var ceImages []explorers.Image
@@ -154,15 +161,21 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 
 		data, err := os.ReadFile(imageConfigFile)
 		if err != nil {
-			log.WithField("message", err).Error("reading image config file")
+			log.WithError(err).Error("reading image config file")
 			continue
 		}
 
 		var pmImages []containerImage
-		json.Unmarshal(data, &pmImages)
+		if err := json.Unmarshal(data, &pmImages); err != nil {
+			log.WithError(err).Error("unmarshalling image config file")
+			continue
+		}
 
 		for _, pmImage := range pmImages {
-			createdAt, _ := time.Parse(time.RFC3339Nano, pmImage.Created)
+			createdAt, err := time.Parse(time.RFC3339Nano, pmImage.Created)
+			if err != nil {
+				log.WithFields(log.Fields{"imageID": pmImage.ID, "error": err}).Debug("parsing image creation time")
+			}
 
 			var imageManifest ocispec.Manifest
 
@@ -171,15 +184,23 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 			if err != nil {
 				log.WithFields(log.Fields{
 					"imageManifestFile": imageManifestFile,
-					"message":           err,
+					"error":             err,
 				}).Error("reading podman image manifest file")
 			} else {
-				json.Unmarshal(imageManifestData, &imageManifest)
+				if err := json.Unmarshal(imageManifestData, &imageManifest); err != nil {
+					log.WithFields(log.Fields{"imageID": pmImage.ID, "error": err}).Debug("unmarshalling image manifest")
+				}
 			}
+
+			imageName := ""
+			if len(pmImage.Names) > 0 {
+				imageName = pmImage.Names[0]
+			}
+
 			ceImage := explorers.Image{
 				ContainerType: "podman",
 				Image: images.Image{
-					Name: pmImage.Names[0],
+					Name: imageName,
 					Target: ocispec.Descriptor{
 						Digest:    digest.Digest(pmImage.Digest),
 						MediaType: imageManifest.MediaType,
@@ -196,7 +217,7 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 	return ceImages, nil
 }
 
-// ListContent return container contents.
+// ListContent returns container contents.
 func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error) {
 	log.Info("listing content is not implemented for podman")
 
@@ -205,8 +226,6 @@ func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error)
 
 // ListTasks returns running tasks.
 func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
-	var err error
-
 	podmanRootDirs, err := e.getPodmanRootDirs()
 	if err != nil {
 		return nil, fmt.Errorf("getting podman root dirs: %w", err)
@@ -217,48 +236,58 @@ func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
 	for _, podmanroot := range podmanRootDirs {
 		dbfile := filepath.Join(podmanroot, "storage", "db.sql")
 
-		e.conn, err = sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbfile))
+		conn, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbfile))
 		if err != nil {
 			return nil, fmt.Errorf("opening sqlite database: %w", err)
 		}
-		defer e.conn.Close()
 
-		rows, err := e.conn.Query("SELECT ID, JSON FROM ContainerState;")
+		err = func() error {
+			defer conn.Close()
+
+			rows, err := conn.Query("SELECT ID, JSON FROM ContainerState;")
+			if err != nil {
+				return fmt.Errorf("query podman container state: %w", err)
+			}
+			defer rows.Close()
+
+			for rows.Next() {
+				var id, stateJSON string
+				if err := rows.Scan(&id, &stateJSON); err != nil {
+					return fmt.Errorf("reading container state row: %w", err)
+				}
+
+				var containerstate libpod.ContainerState
+				if err := json.Unmarshal([]byte(stateJSON), &containerstate); err != nil {
+					return fmt.Errorf("unmarshalling podman container state json: %w", err)
+				}
+
+				containerTask := explorers.Task{
+					ContainerType: "podman",
+					Name:          id,
+					PID:           containerstate.PID,
+					Status:        containerstate.State.String(),
+				}
+
+				containerTasks = append(containerTasks, containerTask)
+			}
+			return nil
+		}()
 		if err != nil {
-			return nil, fmt.Errorf("query podman container state: %w", err)
-		}
-
-		for rows.Next() {
-			var id, stateJSON string
-			if err := rows.Scan(&id, &stateJSON); err != nil {
-				return nil, fmt.Errorf("reading container state row: %w", err)
-			}
-
-			var containerstate libpod.ContainerState
-			if err := json.Unmarshal([]byte(stateJSON), &containerstate); err != nil {
-				return nil, fmt.Errorf("unmarshalling podman container state json: %w", err)
-			}
-
-			containerTask := explorers.Task{
-				ContainerType: "podman",
-				Name:          id,
-				PID:           containerstate.PID,
-				Status:        containerstate.State.String(),
-			}
-
-			containerTasks = append(containerTasks, containerTask)
+			return nil, err
 		}
 	}
 
 	return containerTasks, nil
 }
 
-// InfoContainer returns container information.
+// InfoContainer returns container information similar to `docker inspect` output.
 func (e *explorer) InfoContainer(ctx context.Context, containerID string, spec bool) (any, error) {
+	log.Info("currently not implemented")
+
 	return nil, nil
 }
 
-// MountContainer mount podman container for a given ID or name.
+// MountContainer mounts podman container for a given ID or name.
 func (e *explorer) MountContainer(ctx context.Context, containerID string, mountpoint string) error {
 	podmanRootDirs, err := e.getPodmanRootDirs()
 	if err != nil {
@@ -273,7 +302,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerID string, mount
 		}
 
 		for _, config := range configs {
-			if config.ID == containerID || config.Names[0] == containerID {
+			if config.ID == containerID || (len(config.Names) > 0 && config.Names[0] == containerID) {
 				return e.mountContainer(ctx, podmanRootDir, containerID, config.Layer, mountpoint)
 			}
 		}
@@ -305,6 +334,8 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 }
 
 // ContainerDrift finds the drifted files from containers.
+//   - skipsupportcontainers are only applicable for containerd containers used in GKE. It is not used in Docker and podman.
+//   - filter uses labels to filter the containers. `filter` is not used in podman containers.
 func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]explorers.Drift, error) {
 	var drifts []explorers.Drift
 
@@ -322,18 +353,11 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 
 		for _, config := range configs {
 			// If containerID is supplied & doesn't match skip
-			if containerID != "" && config.ID != containerID && config.Names[0] != containerID {
+			if containerID != "" && config.ID != containerID && (len(config.Names) == 0 || config.Names[0] != containerID) {
 				continue
 			}
 
-			// Only analyze containers matching the filter.
-			analyze := true
-			var metadata containerMetadata
-			json.Unmarshal([]byte(config.Metadata), &metadata)
-
-			if !analyze {
-				continue
-			}
+			log.WithFields(log.Fields{"containerType": "podman", "containerID": config.ID}).Debug("checking container drift")
 
 			// Get upperdir for Podman container
 			overlayDir := filepath.Join(podmanRootDir, "storage", "overlay")
@@ -346,6 +370,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				continue
 			}
 			upperDir := filepath.Join(overlayDir, "l", string(linkData))
+			log.WithFields(log.Fields{"containerType": "podman", "containerID": config.ID, "upperdir": upperDir}).Debug("checking upper layer for drift")
 
 			// Scan upperdir
 			addedOrModified, inaccessibleFiles, err := explorers.ScanDiffDirectory(upperDir)
@@ -360,6 +385,13 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				AddedOrModified:   addedOrModified,
 				InaccessibleFiles: inaccessibleFiles,
 			}
+
+			log.WithFields(log.Fields{
+				"containerType":        drift.ContainerType,
+				"containerID":          drift.ContainerID,
+				"numAddedOrModified":   len(drift.AddedOrModified),
+				"numInaccessibleFiles": len(drift.InaccessibleFiles),
+			}).Debug("container drift detail")
 
 			drifts = append(drifts, drift)
 		}
@@ -376,22 +408,37 @@ func (e *explorer) getUserHomeDirs() ([]string, error) {
 	passwdFile := filepath.Join(e.imageroot, "etc", "passwd")
 	data, err := os.ReadFile(passwdFile)
 	if err != nil {
-		return nil, fmt.Errorf("error reading passwd file: %v", err)
+		return nil, fmt.Errorf("error reading passwd file: %w", err)
 	}
 
-	var usernames []string
+	var homeDirs []string
 
 	passwdLines := strings.Split(string(data), "\n")
 	for _, passwdLine := range passwdLines {
-		if !strings.HasSuffix(passwdLine, "/bash") {
+		if passwdLine == "" {
 			continue
 		}
-		username := strings.Split(passwdLine, ":")[5]
-		if username != "" {
-			usernames = append(usernames, username)
+		// ubuntu:x:1000:1000:Ubuntu:/home/ubuntu:/bin/bash
+		parts := strings.Split(passwdLine, ":")
+		if len(parts) < 7 {
+			log.WithField("line", passwdLine).Debug("skipping malformed passwd entry")
+			continue
 		}
+
+		shell := parts[6]
+		if !strings.HasSuffix(shell, "/bash") && !strings.HasSuffix(shell, "/sh") && !strings.HasSuffix(shell, "/zsh") && !strings.HasSuffix(shell, "/fish") {
+			continue
+		}
+
+		if parts[5] == "" {
+			log.WithField("line", passwdLine).Debug("passwd entry missing home directory")
+			continue
+		}
+
+		homeDirs = append(homeDirs, parts[5])
 	}
-	return usernames, nil
+
+	return homeDirs, nil
 }
 
 func (e *explorer) getPodmanRootDirs() ([]string, error) {
@@ -400,7 +447,7 @@ func (e *explorer) getPodmanRootDirs() ([]string, error) {
 	// Podman containers in user directories
 	usernames, err := e.getUserHomeDirs()
 	if err != nil {
-		log.WithField("imageRootDir", e.imageroot).Info("listing user home directories")
+		log.WithError(err).Info("failed to list user home directories")
 	} else {
 		for _, username := range usernames {
 			podmanroot := filepath.Join(e.imageroot, strings.Replace(username, "/", "", 1), defaultUserPodmanDir)

@@ -24,44 +24,21 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/google/container-explorer/explorers"
 	"github.com/google/container-explorer/utils"
 	log "github.com/sirupsen/logrus"
 )
 
 // ExportContainer exports a podman container as a raw or as an archive.
 func (e *explorer) ExportContainer(ctx context.Context, containerID string, outputDir string, exportOptions map[string]bool) error {
-	// Check if the specified containerID exists.
-	containerExists := false
-
-	containers, err := e.ListContainers(ctx)
+	targetContainer, err := e.GetContainerByID(ctx, containerID)
 	if err != nil {
-		return fmt.Errorf("listing containers: %w", err)
-	}
-
-	var targetContainer explorers.Container
-
-	for _, container := range containers {
-		if container.ID == containerID {
-			targetContainer = container // Found the container
-			containerExists = true
-			break
-		}
-	}
-
-	if !containerExists {
-		log.WithFields(log.Fields{
-			"containerID": containerID,
-		}).Debug("no container found")
-
-		log.Infof("container %s not found in podman containers", containerID)
-		return nil
+		return fmt.Errorf("finding container %s: %w", containerID, err)
 	}
 
 	// Continue the following if a matching containerID is found.
 	log.WithFields(log.Fields{
 		"containerID":   targetContainer.ID,
-		"name":          targetContainer.Runtime.Name,
+		"name":          targetContainer.Name,
 		"namespace":     targetContainer.Namespace,
 		"containerType": targetContainer.ContainerType,
 	}).Info("container found")
@@ -75,7 +52,11 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 	var mountpoint string
 	for {
 		mountpoint = utils.GetMountPoint()
-		exists, _ := utils.PathExists(mountpoint)
+		exists, err := utils.PathExists(mountpoint)
+		if err != nil {
+			return fmt.Errorf("checking if mountpoint %s exists: %w", mountpoint, err)
+		}
+
 		if !exists {
 			// Create the mountpoint directory
 			if err := os.MkdirAll(mountpoint, 0755); err != nil {
@@ -144,7 +125,7 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 	for _, container := range containers {
 		log.WithFields(log.Fields{
 			"containerID":   container.ID,
-			"name":          container.Runtime.Name,
+			"name":          container.Name,
 			"namespace":     container.Namespace,
 			"containerType": container.ContainerType,
 		}).Debug("processing podman container for export")
@@ -152,7 +133,7 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 		if !exportSupportContainers && container.SupportContainer {
 			log.WithFields(log.Fields{
 				"containerID":   container.ID,
-				"name":          container.Runtime.Name,
+				"name":          container.Name,
 				"namespace":     container.Namespace,
 				"containerType": container.ContainerType,
 			}).Debug("skipping Kubernetes support containers")
@@ -162,10 +143,10 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 		if utils.IncludeContainer(container, filter) {
 			log.WithFields(log.Fields{
 				"containerID":   container.ID,
-				"name":          container.Runtime.Name,
+				"name":          container.Name,
 				"namespace":     container.Namespace,
 				"containerType": container.ContainerType,
-			}).Debug("ignoring podman container for export")
+			}).Debug("processing podman container for export")
 
 			err := e.ExportContainer(ctx, container.ID, outputDir, exportOptions)
 			if err != nil {
@@ -180,7 +161,7 @@ func (e *explorer) ExportAllContainers(ctx context.Context, outputDir string, ex
 		}
 	}
 
-	// Default
+	// Return no error
 	return nil
 }
 
@@ -324,20 +305,16 @@ func exportContainerImage(ctx context.Context, containerID string, mountpoint st
 	log.Infof("successfully mounted %s to %s; output: %s", loopDevice, imageMountDir, string(mountImageOutput))
 
 	// 6.3. Copy content from container's mountpoint to the image's mountpoint
-	// Source path: mountpoint + "/." to copy contents of the directory, not the directory itself.
-	sourcePathFiles, _ := filepath.Glob(filepath.Join(mountpoint, "*"))
+	// Source path: mountpoint + "/." to copy contents of the directory, including hidden files.
+	log.Infof("copying contents from %s to %s using 'cp -a'", mountpoint, imageMountDir)
 
-	for _, sourcePathForCopy := range sourcePathFiles {
-		log.Infof("copying contents from %s to %s using 'cp -a'", sourcePathForCopy, imageMountDir)
-
-		copyCmd := exec.Command("cp", "-a", sourcePathForCopy, imageMountDir)
-		copyOutput, err := copyCmd.CombinedOutput()
-		if err != nil {
-			log.Errorf("failed to copy data from %s to %s: %v; output: %s", sourcePathForCopy, imageMountDir, err, string(copyOutput))
-			return fmt.Errorf("failed to copy data from %s to %s: %w. Output: %s", sourcePathForCopy, imageMountDir, err, string(copyOutput))
-		}
-		log.Infof("successfully copied data from %s to %s; output: %s", sourcePathForCopy, imageMountDir, string(copyOutput))
+	copyCmd := exec.CommandContext(ctx, "cp", "-a", filepath.Join(mountpoint, "."), imageMountDir)
+	copyOutput, err := copyCmd.CombinedOutput()
+	if err != nil {
+		log.Errorf("failed to copy data from %s to %s: %v; output: %s", mountpoint, imageMountDir, err, string(copyOutput))
+		return fmt.Errorf("failed to copy data from %s to %s: %w. Output: %s", mountpoint, imageMountDir, err, string(copyOutput))
 	}
+	log.Infof("successfully copied data from %s to %s; output: %s", mountpoint, imageMountDir, string(copyOutput))
 
 	// 6.4. Sync filesystem buffers to ensure all data is written to the image
 	log.Info("syncing filesystem buffers for the image")
