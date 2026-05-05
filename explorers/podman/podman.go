@@ -400,7 +400,11 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 	return drifts, nil
 }
 
+// Close closes explorer.
 func (e *explorer) Close() error {
+	// No closing required for podman explorer.
+	// Returning nil
+
 	return nil
 }
 
