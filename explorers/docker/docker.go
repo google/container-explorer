@@ -152,6 +152,10 @@ func (e *explorer) GetContainerByID(ctx context.Context, containerID string) (*e
 	return nil, fmt.Errorf("no matching container")
 }
 
+func (e *explorer) Type() string {
+	return "docker"
+}
+
 // GetContainerIDs returns container ID
 func (e *explorer) GetContainerIDs(ctx context.Context, containerDir string) ([]string, error) {
 	containerPaths, err := filepath.Glob(filepath.Join(e.dockerRoot, containerDirName, "*"))
@@ -568,11 +572,11 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 
 	filters := strings.Split(filter, ",")
 
-	for _, containerID := range containerIDs {
-		cecontainer, err := e.GetCEContainer(ctx, containerID)
+	for _, id := range containerIDs {
+		cecontainer, err := e.GetCEContainer(ctx, id)
 		if err != nil {
 			log.WithFields(log.Fields{
-				"containerID": containerID,
+				"containerID": id,
 				"message":     err.Error(),
 			}).Warn("unable to get container details. Skipping container mount")
 			continue
@@ -628,17 +632,29 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 
 		switch container.Driver {
 		case "overlay2":
-			upperDirLinkFile := filepath.Join(e.dockerRoot, imageDirName, container.Driver, "layerdb", "mounts", container.ID, "mount-id", "link")
+			containerMountIDPath := filepath.Join(e.dockerRoot, imageDirName, container.Driver, "layerdb", "mounts", container.ID, "mount-id")
+
+			mountIDByte, err := os.ReadFile(containerMountIDPath)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"containerID": container.ID,
+					"message":     err,
+				}).Info("reading container mount-id")
+				continue
+			}
+			mountID := strings.TrimSpace(string(mountIDByte))
+
+			upperDirLinkFile := filepath.Join(e.dockerRoot, container.Driver, mountID, "link")
 
 			linkData, err := os.ReadFile(upperDirLinkFile)
 			if err != nil {
 				log.WithFields(log.Fields{
-					"containerID": containerID,
+					"containerID": container.ID,
 					"message":     err,
 				}).Info("reading upperdir link file")
 				continue
 			}
-			upperDir = filepath.Join(e.dockerRoot, imageDirName, container.Driver, container.ID, "l", string(linkData))
+			upperDir = filepath.Join(e.dockerRoot, container.Driver, "l", strings.TrimSpace(string(linkData)))
 
 		case "overlayfs":
 			log.WithField("containerID", container.ID).Warn("overlayfs is currently unsupported")
