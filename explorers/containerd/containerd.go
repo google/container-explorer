@@ -839,6 +839,10 @@ func (e *explorer) GetContainerByID(ctx context.Context, containerID string) (*e
 	return &cectr, nil
 }
 
+func (e *explorer) Type() string {
+	return "containerd"
+}
+
 // convertToContainerExplorerContainer returns a Container object which is
 // superset of containers.Container object.
 func convertToContainerExplorerContainer(ns string, ctr containers.Container) explorers.Container {

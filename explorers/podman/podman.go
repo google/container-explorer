@@ -35,9 +35,10 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/containerd/containerd/containers"
-	"github.com/containers/podman/v6/libpod"
+	//"github.com/containers/podman/v6/libpod"
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
+	"go.podman.io/podman/v6/libpod"
 )
 
 const (
@@ -69,6 +70,10 @@ func (e *explorer) GetContainerByID(ctx context.Context, containerID string) (*e
 	}
 
 	return nil, fmt.Errorf("no matching container")
+}
+
+func (e *explorer) Type() string {
+	return "podman"
 }
 
 // ListNamespaces returns podman namespaces if exist.
