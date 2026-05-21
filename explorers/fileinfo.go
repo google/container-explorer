@@ -26,6 +26,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type FileInfo struct {
@@ -98,23 +100,81 @@ func GetFileInfo(info os.FileInfo, path string, diffDir string) (*FileInfo, erro
 
 // ScanDiffDirectory identifies added or modified files in the diff directory
 func ScanDiffDirectory(diffDir string) (addedOrModified []FileInfo, inaccessibleFiles []FileInfo, err error) {
-	err = filepath.Walk(diffDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			if info != nil {
+	log.WithField("path", diffDir).Debug("scanning drift directory")
+
+	// Map to track canonical directory paths and prevent infinite loops/cycles from symlinks
+	visited := make(map[string]bool)
+
+	var walk func(string) error
+	walk = func(path string) error {
+		// 1. Get the Lstat info first to check if the entry itself is a symlink
+		info, lstatErr := os.Lstat(path)
+		if lstatErr != nil {
+			// The file/link is completely unreadable
+			log.WithFields(log.Fields{
+				"upperDir": diffDir,
+				"error":    lstatErr,
+			}).Debug("reading drift directory")
+			return nil
+		}
+
+		// 2. If it is a symlink, resolve it to point to the actual target file/directory
+		if info.Mode()&os.ModeSymlink != 0 {
+			targetInfo, err := os.Stat(path)
+			if err != nil {
+				// Broken symlink or target permission error; record as an inaccessible file
 				if fileinfo, err := GetFileInfo(info, path, diffDir); err == nil {
 					inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
 				}
+				return nil
+			}
+			// Overwrite info with the target's FileInfo so metadata matches the actual file
+			info = targetInfo
+		}
+
+		// 3. Handle Directories (and symlinks pointing to directories)
+		if info.IsDir() {
+			// Canonicalize the directory path to detect loops and avoid duplicate traversals
+			realPath, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				log.WithFields(log.Fields{"path": path, "error": err}).Debug("getting real path")
+				return nil
+			}
+			if visited[realPath] {
+				return nil // Already processed or ancestral loop detected; safely return
+			}
+			visited[realPath] = true
+
+			// Read directory contents
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				// Directory exists but contents cannot be read
+				if fileinfo, err := GetFileInfo(info, path, diffDir); err == nil {
+					inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
+				}
+				return nil
 			}
 
-			return nil // Continue walking despite the error
-		}
-		if !info.IsDir() {
+			for _, entry := range entries {
+				nextPath := filepath.Join(path, entry.Name())
+				if err := walk(nextPath); err != nil {
+					log.WithFields(log.Fields{"path": nextPath, "error": err}).Debug("walking drift directory")
+					return err
+				}
+			}
+		} else {
+			// 4. Handle regular files, device files, or symlinks resolved to files
 			fileinfo, err := GetFileInfo(info, path, diffDir)
 			if err != nil {
+				log.WithFields(log.Fields{"path": path, "error": err}).Debug("getting file information")
 				return err
 			}
 
-			// Check if the file is a whiteout files
+			// Ensure the reported FileName matches the logical path name in the tree,
+			// rather than the base name of the resolved target file.
+			fileinfo.FileName = filepath.Base(path)
+
+			// Check if the file is a whiteout file
 			if info.Mode()&os.ModeCharDevice != 0 {
 				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 					rdev := stat.Rdev
@@ -124,28 +184,23 @@ func ScanDiffDirectory(diffDir string) (addedOrModified []FileInfo, inaccessible
 					minor := (rdev & 0xff) | ((rdev >> 12) & 0xfff00)
 
 					if major == 0 && minor == 0 {
-						// This is a whiteout file
 						inaccessibleFiles = append(inaccessibleFiles, *fileinfo)
-
 						return nil
 					}
 				}
 			}
 
-			// Check if the file is not a symbolic link
-			if info.Mode()&os.ModeSymlink == 0 {
-				// Check if the file has executable permissions
-				mode := info.Mode().Perm()
-				if mode&0111 != 0 {
-					// The file is executable by owner, group, or others
-					fileinfo.FileType = "executable"
-				}
+			// Check if the target file has executable permissions
+			mode := info.Mode().Perm()
+			if mode&0111 != 0 {
+				fileinfo.FileType = "executable"
 			}
 
 			addedOrModified = append(addedOrModified, *fileinfo)
 		}
 		return nil
-	})
+	}
 
+	err = walk(diffDir)
 	return
 }
