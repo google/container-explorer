@@ -449,6 +449,106 @@ func (e *explorer) InfoContainer(ctx context.Context, containerid string, spec b
 	return nil, nil
 }
 
+// resolveSnapshotter checks the snapshotter in meta.db.
+// If not found, falls back to "overlayfs".
+func (e *explorer) resolveSnapshotter(ctx context.Context, container *containers.Container) error {
+	if container.Snapshotter != "" && container.SnapshotKey != "" {
+		return nil
+	}
+
+	namespace, err := namespaces.NamespaceRequired(ctx)
+	if err != nil {
+		if container.Snapshotter == "" {
+			container.Snapshotter = "overlayfs" // default fallback
+		}
+		if container.SnapshotKey == "" {
+			container.SnapshotKey = container.ID
+		}
+		return fmt.Errorf("failed to get namespace from context when resolving snapshotter: %w", err)
+	}
+
+	var foundSnapshotter string
+	var foundSnapshotKey string
+
+	dbErr := e.mdb.View(func(tx *bolt.Tx) error {
+		bkt := getSnapshottersBucket(tx, namespace)
+		if bkt == nil {
+			return nil
+		}
+
+		searchSnapshotter := func(snapshotterName string) error {
+			ssbkt := bkt.Bucket([]byte(snapshotterName))
+			if ssbkt == nil {
+				return nil
+			}
+
+			if container.SnapshotKey != "" {
+				if skBkt := ssbkt.Bucket([]byte(container.SnapshotKey)); skBkt != nil {
+					foundSnapshotter = snapshotterName
+					foundSnapshotKey = container.SnapshotKey
+					return fmt.Errorf("found")
+				}
+			} else {
+				// Try container.ID as the snapshot key
+				if skBkt := ssbkt.Bucket([]byte(container.ID)); skBkt != nil {
+					foundSnapshotter = snapshotterName
+					foundSnapshotKey = container.ID
+					return fmt.Errorf("found")
+				}
+
+				// Search for a snapshot key containing container.ID
+				var matchedKey string
+				_ = ssbkt.ForEach(func(k, v []byte) error {
+					keyStr := string(k)
+					if strings.Contains(keyStr, container.ID) {
+						matchedKey = keyStr
+						return fmt.Errorf("found_match")
+					}
+					return nil
+				})
+				if matchedKey != "" {
+					foundSnapshotter = snapshotterName
+					foundSnapshotKey = matchedKey
+					return fmt.Errorf("found")
+				}
+			}
+			return nil
+		}
+
+		if container.Snapshotter != "" {
+			return searchSnapshotter(container.Snapshotter)
+		}
+
+		// If container.Snapshotter is empty, search all snapshotters
+		_ = bkt.ForEach(func(k, v []byte) error {
+			if err := searchSnapshotter(string(k)); err != nil {
+				return err
+			}
+			return nil
+		})
+		return nil
+	})
+
+	if dbErr != nil && dbErr.Error() != "found" {
+		return fmt.Errorf("failed to view database: %w", dbErr)
+	}
+
+	if foundSnapshotter != "" {
+		container.Snapshotter = foundSnapshotter
+		container.SnapshotKey = foundSnapshotKey
+		log.Infof("resolved empty snapshotter/key for container %s to snapshotter=%s, key=%s", container.ID, foundSnapshotter, foundSnapshotKey)
+	} else {
+		if container.Snapshotter == "" {
+			container.Snapshotter = "overlayfs" // default fallback
+		}
+		if container.SnapshotKey == "" {
+			container.SnapshotKey = container.ID // default fallback to container ID
+		}
+		log.Warnf("could not resolve snapshotter/key in meta.db for container %s, falling back to snapshotter=%s, key=%s", container.ID, container.Snapshotter, container.SnapshotKey)
+	}
+	return nil
+}
+
 // MountContainer mounts a container to the specified path
 func (e *explorer) MountContainer(ctx context.Context, containerid string, mountpoint string) error {
 	store := metadata.NewContainerStore(metadata.NewDB(e.mdb, nil, nil))
@@ -456,6 +556,10 @@ func (e *explorer) MountContainer(ctx context.Context, containerid string, mount
 	container, err := store.Get(ctx, containerid)
 	if err != nil {
 		return fmt.Errorf("failed getting container information %v", err)
+	}
+
+	if err := e.resolveSnapshotter(ctx, &container); err != nil {
+		return fmt.Errorf("failed to resolve snapshotter: %w", err)
 	}
 
 	// Snapshot database metadata.db access
@@ -727,6 +831,9 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 		container, err := store.Get(ctx, ctr.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed getting container information %v", err)
+		}
+		if err := e.resolveSnapshotter(ctx, &container); err != nil {
+			return nil, fmt.Errorf("failed to resolve snapshotter: %w", err)
 		}
 		// Snapshot database metadata.db access
 		opts := bolt.Options{

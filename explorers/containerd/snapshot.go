@@ -157,7 +157,7 @@ func (s *snapshotStore) NativePath(ctx context.Context, container containers.Con
 
 	snapshotkeys, err := s.SnapshotKeys(ctx, container)
 	if err != nil {
-		return "", fmt.Errorf("could not get snapshot keys for container ", container.ID)
+		return "", fmt.Errorf("could not get snapshot keys for container %s", container.ID)
 	}
 
 	var (
@@ -192,7 +192,7 @@ func (s *snapshotStore) OverlayPath(ctx context.Context, container containers.Co
 
 	snapshotkeys, err := s.SnapshotKeys(ctx, container)
 	if err != nil {
-		return "", "", "", fmt.Errorf("could not get snapshot keys for container ", container.ID)
+		return "", "", "", fmt.Errorf("could not get snapshot keys for container %s", container.ID)
 	}
 
 	var (
