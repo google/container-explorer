@@ -17,12 +17,12 @@ limitations under the License.
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+
+	"github.com/google/container-explorer/explorers"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/containerd/containerd/namespaces"
 	"github.com/urfave/cli"
 )
 
@@ -41,7 +41,7 @@ var infoContainer = cli.Command{
 	Description: "show container internal information",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "spec",
+			Name:  "spec, s",
 			Usage: "show only container spec",
 		},
 	},
@@ -51,48 +51,22 @@ var infoContainer = cli.Command{
 			return fmt.Errorf("container id is required")
 		}
 
-		var (
-			namespace   string
-			containerid string
-		)
+		containerID := clictx.Args().First()
+		spec := clictx.Bool("spec")
 
-		namespace = clictx.GlobalString("namespace")
-		containerid = clictx.Args().First()
+		matched, err := ForMatchingContainer(GlobalConfig.Context, containerID, func(xplr explorers.ContainerExplorer) error {
+			info, err := xplr.InfoContainer(GlobalConfig.Context, containerID, spec)
+			if err != nil {
+				return err
+			}
+			printAsJSON(info)
+			return nil
+		})
 
-		ctx, exp, cancel, err := explorerEnvironment(clictx)
-		if err != nil {
-			log.Fatal(err)
+		if !matched {
+			log.Errorf("container %s not found", containerID)
 		}
-		defer cancel()
-
-		ctx = namespaces.WithNamespace(ctx, namespace)
-
-		info, err := exp.InfoContainer(ctx, containerid, clictx.Bool("spec"))
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		printAsJSON(info)
-
-		return nil
+		return err
 	},
 }
 
-func printAsJSON(v interface{}) {
-	b, err := json.MarshalIndent(v, "", " ")
-	if err != nil {
-		log.Error("error marshaling to JSON", err)
-		return
-	}
-
-	fmt.Println(string(b))
-}
-
-func printAsJSONLine(v interface{}) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		log.Error("error marshaling to json_line", err)
-		return
-	}
-	fmt.Println(string(b))
-}

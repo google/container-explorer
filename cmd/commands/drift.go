@@ -23,6 +23,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/google/container-explorer/explorers"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -35,11 +37,11 @@ var DriftCommand = cli.Command{
 	ArgsUsage:   "[containerID]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "filter",
+			Name:  "filter, f",
 			Usage: "comma separated label filter using key=value pair",
 		},
 		cli.BoolFlag{
-			Name:  "mount-support-containers",
+			Name:  "mount-support-containers, s",
 			Usage: "mount Kubernetes supporting containers",
 		},
 	},
@@ -48,8 +50,8 @@ var DriftCommand = cli.Command{
 		if runtime.GOOS != "linux" {
 			return fmt.Errorf("feature is only supported on Linux")
 		}
-		output := clictx.GlobalString("output")
-		outputfile := clictx.GlobalString("output-file")
+		output := GlobalConfig.Output
+		outputfile := GlobalConfig.OutputFile
 		filter := clictx.String("filter")
 
 		// Getting container ID positional arg
@@ -58,27 +60,25 @@ var DriftCommand = cli.Command{
 			containerID = clictx.Args().First()
 		}
 
-		ctx, exp, cancel, err := explorerEnvironment(clictx)
-		if err != nil {
-			return err
-		}
-		defer cancel()
+		var allDrifts []explorers.Drift
 
-		drifts, err := exp.ContainerDrift(ctx, filter, !clictx.Bool("mount-support-containers"), containerID)
-		if err != nil {
-			log.WithField("message", err).Error("retrieving container drift")
-			if output == "json" && outputfile != "" {
-				data := []string{}
-				writeOutputFile(data, outputfile)
+		exps := GetExplorers()
+		for _, xplr := range exps {
+			drifts, err := xplr.ContainerDrift(GlobalConfig.Context, filter, !clictx.Bool("mount-support-containers"), containerID)
+			if err != nil {
+				engineName := xplr.Type()
+				log.WithField("message", err).Errorf("retrieving %s container drift", engineName)
+			} else if drifts != nil {
+				allDrifts = append(allDrifts, drifts...)
 			}
-			return nil
 		}
+
 		// Handle output formats
 		if strings.ToLower(output) == "json" {
 			if outputfile != "" {
-				writeOutputFile(drifts, outputfile)
+				writeOutputFile(allDrifts, outputfile)
 			} else {
-				printAsJSON(drifts)
+				printAsJSON(allDrifts)
 			}
 			return nil
 		}
@@ -89,10 +89,10 @@ var DriftCommand = cli.Command{
 
 		if output == "table" {
 			// Define the header
-			fmt.Fprintf(tw, "CONTAINER ID\tADDED/MODIFIED\tDELETED\n")
+			fmt.Fprintf(tw, "CONTAINER TYPE\tCONTAINER ID\tADDED/MODIFIED\tDELETED\n")
 		}
 
-		for _, drift := range drifts {
+		for _, drift := range allDrifts {
 			switch strings.ToLower(output) {
 			case "json_line":
 				printAsJSONLine(drift)
@@ -116,7 +116,8 @@ var DriftCommand = cli.Command{
 				displayAddedOrModifiedFiles := strings.Join(addedOrModifiedFiles, ", ")
 				displayInaccessibleFiles := strings.Join(inaccessibleFiles, ", ")
 
-				displayValues := fmt.Sprintf("%s\t%s\t%s",
+				displayValues := fmt.Sprintf("%s\t%s\t%s\t%s",
+					drift.ContainerType,
 					drift.ContainerID,
 					displayAddedOrModifiedFiles,
 					displayInaccessibleFiles,
@@ -130,3 +131,4 @@ var DriftCommand = cli.Command{
 		return nil
 	},
 }
+
