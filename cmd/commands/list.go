@@ -580,4 +580,3 @@ var listTasks = cli.Command{
 		return nil
 	},
 }
-
