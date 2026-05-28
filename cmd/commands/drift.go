@@ -131,4 +131,3 @@ var DriftCommand = cli.Command{
 		return nil
 	},
 }
-
