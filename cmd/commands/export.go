@@ -19,10 +19,9 @@ package commands
 import (
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/google/container-explorer/explorers"
-	"github.com/google/container-explorer/explorers/containerd"
-	"github.com/google/container-explorer/explorers/docker"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -35,11 +34,11 @@ var ExportCommand = cli.Command{
 	ArgsUsage:   "ID OUTPUTDIR",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name: "image",
+			Name:  "image, i",
 			Usage: "output container as raw image",
 		},
 		cli.BoolFlag{
-			Name: "archive",
+			Name:  "archive, a",
 			Usage: "output container as archive",
 		},
 	},
@@ -70,73 +69,50 @@ var ExportCommand = cli.Command{
 		exportOptions["image"] = exportAsImage
 		exportOptions["archive"] = exportAsArchive
 
-		// Process container-explorer runtime arguments
-		ctx, runtimeConfig, err := parseRuntimeConfig(clictx)
-		if err != nil {
-			return err
-		}
-
-		namespace := runtimeConfig["namespace"].(string)
-		imageRootDir := runtimeConfig["imageRootDir"].(string)
-		containerdRootDir := runtimeConfig["containerdRootDir"].(string)
-		dockerRootDir := runtimeConfig["dockerRootDir"].(string)
-		metadataFile := runtimeConfig["metadataFile"].(string)
-		snapshotFile := runtimeConfig["snapshotFile"].(string)
-		layercache := runtimeConfig["layerCache"].(string)
-		sc := runtimeConfig["supportContainer"].(*explorers.SupportContainer)
-
 		log.WithFields(log.Fields{
-			"namespace":   namespace,
-			"containerID": containerID,
-			"outputDir":  outputDir,
-			"exportAsImage": exportAsImage,
+			"containerID":     containerID,
+			"outputDir":       outputDir,
+			"exportAsImage":   exportAsImage,
 			"exportAsArchive": exportAsArchive,
-		}).Debug("Processing export request")
+		}).Debug("processing export request")
 
-		cXplr, err := containerd.NewExplorer(imageRootDir, containerdRootDir, metadataFile, snapshotFile, layercache, sc)
-		if err == nil {
-			if err := cXplr.ExportContainer(ctx, containerID, outputDir, exportOptions); err != nil {
-				log.Errorf("exporting %s as containerd container: %v", containerID, err)
-			}
-		} else {
-			log.Errorf("getting containerd explorer: %v", err)
+		matched, err := ForMatchingContainer(GlobalConfig.Context, containerID, func(xplr explorers.ContainerExplorer) error {
+			return xplr.ExportContainer(GlobalConfig.Context, containerID, outputDir, exportOptions)
+		})
+
+		if !matched {
+			return fmt.Errorf("no matching container")
 		}
-
-		dXplr, err := docker.NewExplorer(dockerRootDir, containerdRootDir, metadataFile, snapshotFile, sc)
-		if err == nil {
-			if err := dXplr.ExportContainer(ctx, containerID, outputDir, exportOptions); err != nil {
-				log.Errorf("exporting %s as Docker container: %v", containerID, err)
-			}
-		} else {
-			log.Errorf("getting Docker explorer: %v", err)
-		}
-
-		// default return
-		return nil
+		return err
 	},
 }
 
 var ExportAllCommand = cli.Command{
-	Name: "export-all",
-	Aliases: []string{"export_all"},
-	Usage: "export all containers as image or archive",
+	Name:        "export-all",
+	Aliases:     []string{"export_all"},
+	Usage:       "export all containers as image or archive",
 	Description: "export all containers as image or archive",
-	ArgsUsage: "OUTPUTDIR",
+	ArgsUsage:   "OUTPUTDIR",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name: "image",
+			Name:  "image, i",
 			Usage: "output container as raw image",
 		},
 		cli.BoolFlag{
-			Name: "archive",
+			Name:  "archive, a",
 			Usage: "output container as archive",
 		},
 		cli.StringFlag{
-			Name: "filter",
+			Name:  "container-engine, e",
+			Usage: "supported container engine containerd, docker, and podman",
+			Value: "all",
+		},
+		cli.StringFlag{
+			Name:  "filter, f",
 			Usage: "comma separated label filter using key=value",
 		},
 		cli.BoolFlag{
-			Name: "export-support-containers",
+			Name:  "export-support-containers, s",
 			Usage: "export Kubernetes supporting containers",
 		},
 	},
@@ -153,6 +129,7 @@ var ExportAllCommand = cli.Command{
 
 		exportAsImage := clictx.Bool("image")
 		exportAsArchive := clictx.Bool("archive")
+		containerEngine := clictx.String("container-engine")
 
 		// At least one options is required. If not provided by user
 		// export as image file.
@@ -169,46 +146,14 @@ var ExportAllCommand = cli.Command{
 
 		exportSupportContainers := clictx.Bool("export-support-containers")
 
-		// Process container-explorer runtime arguments
-		ctx, runtimeConfig, err := parseRuntimeConfig(clictx)
-		if err != nil {
-			return err
-		}
-
-		namespace := runtimeConfig["namespace"].(string)
-		imageRootDir := runtimeConfig["imageRootDir"].(string)
-		containerdRootDir := runtimeConfig["containerdRootDir"].(string)
-		dockerRootDir := runtimeConfig["dockerRootDir"].(string)
-		metadataFile := runtimeConfig["metadataFile"].(string)
-		snapshotFile := runtimeConfig["snapshotFile"].(string)
-		layercache := runtimeConfig["layerCache"].(string)
-		sc := runtimeConfig["supportContainer"].(*explorers.SupportContainer)
-
-		log.WithFields(log.Fields{
-			"namespace":   namespace,
-			"outputDir":  outputDir,
-			"exportAsImage": exportAsImage,
-			"exportAsArchive": exportAsArchive,
-		}).Debug("Processing export-all request")
-
-		// Exporting all containerd containers
-		cXplr, err := containerd.NewExplorer(imageRootDir, containerdRootDir, metadataFile, snapshotFile, layercache, sc)
-		if err == nil {
-			if err := cXplr.ExportAllContainers(ctx, outputDir, exportOptions, filterMap, exportSupportContainers); err != nil {
-				log.Errorf("exporting all containerd containers as image or archive: %v", err)
+		exps := GetExplorers()
+		for _, xplr := range exps {
+			engineName := xplr.Type()
+			if containerEngine == "all" || strings.ToLower(containerEngine) == engineName {
+				if err := xplr.ExportAllContainers(GlobalConfig.Context, outputDir, exportOptions, filterMap, exportSupportContainers); err != nil {
+					log.Errorf("exporting all %s containers as image or archive: %v", engineName, err)
+				}
 			}
-		} else {
-			log.Errorf("getting containerd explorer: %v", err)
-		}
-
-		// Exporting all Docker containers
-		dXplr, err := docker.NewExplorer(dockerRootDir, containerdRootDir, metadataFile, snapshotFile, sc)
-		if err == nil {
-			if err := dXplr.ExportAllContainers(ctx, outputDir, exportOptions, filterMap, exportSupportContainers); err != nil {
-				log.Errorf("exporting all Docker containers as image or archive: %v", err)
-			}
-		} else {
-			log.Errorf("getting Docker explorer: %v", err)
 		}
 
 		return nil

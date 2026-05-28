@@ -20,7 +20,8 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/containerd/containerd/namespaces"
+	"github.com/google/container-explorer/explorers"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -41,29 +42,16 @@ var MountCommand = cli.Command{
 			return fmt.Errorf("container id and mount point are required")
 		}
 
-		namespace := clictx.GlobalString("namespace")
-		containerid := clictx.Args().First()
+		containerID := clictx.Args().First()
 		mountpoint := clictx.Args().Get(1)
 
-		log.WithFields(log.Fields{
-			"namespace":   namespace,
-			"containerid": containerid,
-			"mountpoint":  mountpoint,
-		}).Debug("user provided mount options")
+		matched, err := ForMatchingContainer(GlobalConfig.Context, containerID, func(xplr explorers.ContainerExplorer) error {
+			return xplr.MountContainer(GlobalConfig.Context, containerID, mountpoint)
+		})
 
-		ctx, exp, cancel, err := explorerEnvironment(clictx)
-		if err != nil {
-			return err
+		if !matched {
+			log.Errorf("container %s not found", containerID)
 		}
-		defer cancel()
-
-		ctx = namespaces.WithNamespace(ctx, namespace)
-
-		if err := exp.MountContainer(ctx, containerid, mountpoint); err != nil {
-			return err
-		}
-
-		// default return
-		return nil
+		return err
 	},
 }
