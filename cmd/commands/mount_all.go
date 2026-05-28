@@ -80,4 +80,3 @@ var MountAllCommand = cli.Command{
 		return nil // default
 	},
 }
-
