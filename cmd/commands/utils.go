@@ -143,4 +143,3 @@ func writeOutputFile(v any, outputfile string) {
 	data, _ := json.Marshal(v)
 	os.WriteFile(outputfile, data, 0644)
 }
-
