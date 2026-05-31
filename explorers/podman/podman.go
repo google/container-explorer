@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package podman implements the ContainerExplorer interface for exploring Podman managed containers.
 package podman
 
 import (
