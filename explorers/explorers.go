@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package explorers defines the core interfaces and data structures for exploring container filesystems,
+// images, namespaces, snapshots, and metadata across different container runtimes.
 package explorers
 
 import (
