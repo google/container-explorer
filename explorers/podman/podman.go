@@ -34,27 +34,34 @@ import (
 	"github.com/containerd/containerd/images"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	spec "github.com/opencontainers/runtime-spec/specs-go"
 
 	"github.com/containerd/containerd/containers"
-	//"github.com/containers/podman/v6/libpod"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/BurntSushi/toml"
 	log "github.com/sirupsen/logrus"
 	"go.podman.io/podman/v6/libpod"
-)
-
-const (
-	defaultUserPodmanDir = ".local/share/containers"
+	storageTypes "go.podman.io/storage/types"
 )
 
 type explorer struct {
 	imageroot string
+	podmanRootDirs []string
 }
 
 // NewExplorer returns ContainerExplorer interface to explore podman containers.
 func NewExplorer(imageroot string) (explorers.ContainerExplorer, error) {
-	return &explorer{
-		imageroot: imageroot,
-	}, nil
+	e := &explorer{
+		imageroot:imageroot,
+	}
+
+	rootDirs, err := e.getPodmanRootDirs()
+	if err != nil {
+		return nil, fmt.Errorf("no podman root directories: %w", err)
+	}
+
+	e.podmanRootDirs = rootDirs
+	return e, nil
 }
 
 // GetContainerByID returns Container for a given container ID or container name.
@@ -105,12 +112,7 @@ func (e *explorer) SnapshotRoot(snapshotter string) string {
 func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, error) {
 	var podmanContainers []explorers.Container
 
-	podmanRootDirs, err := e.getPodmanRootDirs()
-	if err != nil {
-		return nil, fmt.Errorf("getting podman root directories: %w", err)
-	}
-
-	for _, podmanRootDir := range podmanRootDirs {
+	for _, podmanRootDir := range e.podmanRootDirs {
 		configs, err := e.readContainerConfig(podmanRootDir)
 		if err != nil {
 			log.WithFields(log.Fields{"podmanRootDir": podmanRootDir, "error": err}).Debug("reading container config")
@@ -151,14 +153,9 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 
 // ListImages returns podman images.
 func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
-	podmanRootDirs, err := e.getPodmanRootDirs()
-	if err != nil {
-		return nil, fmt.Errorf("getting podman root directories: %w", err)
-	}
-
 	var ceImages []explorers.Image
 
-	for _, podmanRootDir := range podmanRootDirs {
+	for _, podmanRootDir := range e.podmanRootDirs {
 		imageConfigFile := filepath.Join(podmanRootDir, "storage", "overlay-images", "images.json")
 		if ok := utils.PathExistsV2(imageConfigFile); !ok {
 			log.WithField("imageConfigPath", imageConfigFile).Info("podman image config file not found")
@@ -232,15 +229,14 @@ func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error)
 
 // ListTasks returns running tasks.
 func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
-	podmanRootDirs, err := e.getPodmanRootDirs()
-	if err != nil {
-		return nil, fmt.Errorf("getting podman root dirs: %w", err)
-	}
-
 	var containerTasks []explorers.Task
 
-	for _, podmanroot := range podmanRootDirs {
-		dbfile := filepath.Join(podmanroot, "storage", "db.sql")
+	for _, podmanRootDir := range e.podmanRootDirs {
+		dbfile := filepath.Join(podmanRootDir, "storage", "db.sql")
+		if ok := utils.PathExistsV2(dbfile); !ok {
+			log.WithField("dbfile", dbfile).Debug("podman sqlite database file not found, skipping root directory")
+			continue
+		}
 
 		conn, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbfile))
 		if err != nil {
@@ -286,21 +282,85 @@ func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
 	return containerTasks, nil
 }
 
-// InfoContainer returns container information similar to `docker inspect` output.
-func (e *explorer) InfoContainer(ctx context.Context, containerID string, spec bool) (any, error) {
-	log.Info("currently not implemented")
+// InfoContainer returns container internal information.
+func (e *explorer) InfoContainer(ctx context.Context, containerID string, showSpec bool) (any, error) {
+	var matchedConfig *containerConfig
+	var matchedRootDir string
 
-	return nil, nil
+	// Find the container config and root directory
+	for _, podmanRootDir := range e.podmanRootDirs {
+		configs, err := e.readContainerConfig(podmanRootDir)
+		if err != nil {
+			log.WithFields(log.Fields{"podmanRootDir": podmanRootDir, "error": err}).Debug("reading container config")
+			continue
+		}
+
+		for _, config := range configs {
+			if config.ID == containerID || (len(config.Names) > 0 && config.Names[0] == containerID) {
+				matchedConfig = &config
+				matchedRootDir = podmanRootDir
+				break
+			}
+		}
+		if matchedConfig != nil {
+			break
+		}
+	}
+
+	if matchedConfig == nil {
+		return nil, fmt.Errorf("getting container %s: no matching container", containerID)
+	}
+
+	// Read OCI spec from userdata/config.json
+	specFile := filepath.Join(matchedRootDir, "storage", "overlay-containers", matchedConfig.ID, "userdata", "config.json")
+	if ok := utils.PathExistsV2(specFile); !ok {
+		return nil, fmt.Errorf("container spec file %s does not exist", specFile)
+	}
+
+	data, err := os.ReadFile(specFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading container spec file %s: %w", specFile, err)
+	}
+
+	var ociSpec spec.Spec
+	if err := json.Unmarshal(data, &ociSpec); err != nil {
+		return nil, fmt.Errorf("unmarshalling container spec: %w", err)
+	}
+
+	if showSpec {
+		return ociSpec, nil
+	}
+
+	var metadata containerMetadata
+	if err := json.Unmarshal([]byte(matchedConfig.Metadata), &metadata); err != nil {
+		log.WithFields(log.Fields{"containerID": matchedConfig.ID, "error": err}).Debug("unmarshalling container metadata")
+	}
+
+	parsedTime, err := time.Parse(time.RFC3339Nano, matchedConfig.Created)
+	if err != nil {
+		log.WithFields(log.Fields{"containerID": matchedConfig.ID, "error": err}).Debug("parsing container creation time")
+	}
+
+	container := containers.Container{
+		ID:        matchedConfig.ID,
+		Image:     metadata.ImageName,
+		CreatedAt: parsedTime,
+		Labels:    ociSpec.Annotations,
+	}
+
+	// Return container and spec info
+	return struct {
+		containers.Container
+		Spec any `json:"Spec,omitempty"`
+	}{
+		Container: container,
+		Spec:      ociSpec,
+	}, nil
 }
 
 // MountContainer mounts podman container for a given ID or name.
 func (e *explorer) MountContainer(ctx context.Context, containerID string, mountpoint string) error {
-	podmanRootDirs, err := e.getPodmanRootDirs()
-	if err != nil {
-		return fmt.Errorf("getting podman directories: %w", err)
-	}
-
-	for _, podmanRootDir := range podmanRootDirs {
+	for _, podmanRootDir := range e.podmanRootDirs {
 		configs, err := e.readContainerConfig(podmanRootDir)
 		if err != nil {
 			log.WithFields(log.Fields{"podmanRootDir": podmanRootDir, "error": err}).Debug("reading containers.json")
@@ -327,12 +387,19 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 	for _, container := range containers {
 		containerMountPoint := filepath.Join(mountpoint, container.ID)
 		if err := os.MkdirAll(containerMountPoint, 0755); err != nil {
-			return fmt.Errorf("creating a container mountpoint: %w", err)
+			log.WithFields(log.Fields{
+				"containerID": container.ID,
+				"error":       err,
+			}).Error("creating container mountpoint failed; skipping container mount")
+			continue
 		}
 
 		containerName := container.Name
 		if err := e.MountContainer(ctx, containerName, containerMountPoint); err != nil {
-			return err
+			log.WithFields(log.Fields{
+				"containerID": container.ID,
+				"error":       err,
+			}).Error("mounting container failed; skipping container mount")
 		}
 	}
 
@@ -345,12 +412,7 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]explorers.Drift, error) {
 	var drifts []explorers.Drift
 
-	podmanRootDirs, err := e.getPodmanRootDirs()
-	if err != nil {
-		return nil, fmt.Errorf("getting podman root directories: %w", err)
-	}
-
-	for _, podmanRootDir := range podmanRootDirs {
+	for _, podmanRootDir := range e.podmanRootDirs {
 		configs, err := e.readContainerConfig(podmanRootDir)
 		if err != nil {
 			log.WithFields(log.Fields{"podmanRootDir": podmanRootDir, "error": err}).Error("reading container config")
@@ -375,7 +437,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				log.WithFields(log.Fields{"container": config.ID, "error": err}).Error("reading link file")
 				continue
 			}
-			upperDir := filepath.Join(overlayDir, "l", string(linkData))
+			upperDir := filepath.Join(overlayDir, "l", strings.TrimSpace(string(linkData)))
 			log.WithFields(log.Fields{"containerType": "podman", "containerID": config.ID, "upperdir": upperDir}).Debug("checking upper layer for drift")
 
 			// Scan upperdir
@@ -451,31 +513,87 @@ func (e *explorer) getUserHomeDirs() ([]string, error) {
 	return homeDirs, nil
 }
 
+// getPodmanRootDirs scans for storage.conf and `graphroot` and returns the based directory
+// as the podmanRootDir.
 func (e *explorer) getPodmanRootDirs() ([]string, error) {
 	var podmanRootDirs []string
 
 	// Podman containers in user directories
-	usernames, err := e.getUserHomeDirs()
+	homedirs, err := e.getUserHomeDirs()
 	if err != nil {
 		log.WithError(err).Info("failed to list user home directories")
 	} else {
-		for _, username := range usernames {
-			podmanroot := filepath.Join(e.imageroot, strings.Replace(username, "/", "", 1), defaultUserPodmanDir)
-			ok := utils.PathExistsV2(podmanroot)
-			if !ok {
+		for _, homedir := range homedirs {
+			userStorageGraphRoot, err := e.getUserStorageGraphRoot(homedir)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"homedir": homedir,
+					"error":   err,
+				}).Debug("failed to get user storage graphroot")
 				continue
 			}
-			podmanRootDirs = append(podmanRootDirs, podmanroot)
+			if ok := utils.PathExistsV2(userStorageGraphRoot); !ok {
+				continue
+			}
+			podmanRootDirs = append(podmanRootDirs, filepath.Dir(userStorageGraphRoot))
 		}
 	}
 
 	// Podman containers in system directory
-	systemPodmanRootDir := filepath.Join(e.imageroot, "var", "lib", "containers")
-	if ok := utils.PathExistsV2(systemPodmanRootDir); ok {
-		podmanRootDirs = append(podmanRootDirs, systemPodmanRootDir)
+	systemStorageGraphRoot, err := e.getSystemStorageGraphRoot()
+	if err != nil {
+		log.WithError(err).Debug("failed to get system graphroot")
+	} else {
+		if ok := utils.PathExistsV2(systemStorageGraphRoot); ok {
+			podmanRootDirs = append(podmanRootDirs, filepath.Dir(systemStorageGraphRoot))
+		}
 	}
 
 	return podmanRootDirs, nil
+}
+
+func (e *explorer) getUserStorageGraphRoot(homedir string) (string, error) {
+	userPodmanStorageConfig := filepath.Join(e.imageroot, strings.TrimPrefix(homedir, "/"), ".config", "containers", "storage.conf")
+	graphRoot := filepath.Join(homedir, ".local/share/containers/storage")
+
+	if ok := utils.PathExistsV2(userPodmanStorageConfig); ok {
+		var config struct {
+			Storage struct {
+				GraphRoot           string `toml:"graphroot"`
+				RootlessStoragePath string `toml:"rootless_storage_path"`
+			} `toml:"storage"`
+		}
+		if _, err := toml.DecodeFile(userPodmanStorageConfig, &config); err == nil {
+			if config.Storage.GraphRoot != "" {
+				graphRoot = config.Storage.GraphRoot
+			} else if config.Storage.RootlessStoragePath != "" {
+				graphRoot = config.Storage.RootlessStoragePath
+			}
+		} else {
+			log.WithFields(log.Fields{
+				"path":  userPodmanStorageConfig,
+				"error": err,
+			}).Warn("failed to decode user storage config")
+		}
+	}
+
+	if strings.HasPrefix(graphRoot, "~/") {
+		graphRoot = filepath.Join(homedir, graphRoot[2:])
+	} else if strings.HasPrefix(graphRoot, "$HOME/") {
+		graphRoot = filepath.Join(homedir, graphRoot[6:])
+	}
+
+	return filepath.Join(e.imageroot, strings.TrimPrefix(graphRoot, "/")), nil
+}
+
+func (e *explorer) getSystemStorageGraphRoot() (string, error) {
+	storeOpts, err := storageTypes.LoadStoreOptions(storageTypes.LoadOptions{
+		RootForImplicitAbsolutePaths: e.imageroot,
+	})
+	if err != nil {
+		return "", fmt.Errorf("loading storage options: %w", err)
+	}
+	return filepath.Join(e.imageroot, storeOpts.GraphRoot), nil
 }
 
 func (e *explorer) readContainerConfig(podmanRootDir string) ([]containerConfig, error) {
@@ -506,7 +624,7 @@ func (e *explorer) mountContainer(ctx context.Context, podmanRootDir string, con
 	if err != nil {
 		return fmt.Errorf("reading link file: %w", err)
 	}
-	upperDir := filepath.Join(overlayDir, "l", string(linkData))
+	upperDir := filepath.Join(overlayDir, "l", strings.TrimSpace(string(linkData)))
 
 	// Lowerdir
 	lowerFile := filepath.Join(layerDir, "lower")
@@ -519,12 +637,12 @@ func (e *explorer) mountContainer(ctx context.Context, podmanRootDir string, con
 		"containerID":   containerID,
 		"podmanRootDir": podmanRootDir,
 		"overlayDir":    overlayDir,
-		"lowerdir":      string(lowerData),
-		"upperdir":      string(linkData),
+		"lowerdir":      strings.TrimSpace(string(lowerData)),
+		"upperdir":      strings.TrimSpace(string(linkData)),
 	}).Infof("container layers")
 
 	var lowerDirs []string
-	for _, lowerDir := range strings.Split(string(lowerData), ":") {
+	for _, lowerDir := range strings.Split(strings.TrimSpace(string(lowerData)), ":") {
 		lowerDirs = append(lowerDirs, filepath.Join(overlayDir, lowerDir))
 	}
 	lowerDir := strings.Join(lowerDirs, ":")
