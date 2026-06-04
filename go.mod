@@ -1,8 +1,9 @@
 module github.com/google/container-explorer
 
-go 1.25.6
+go 1.25.10
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/containerd/containerd v1.7.32
 	github.com/containerd/containerd/v2 v2.2.2
 	github.com/docker/docker v28.5.2+incompatible
@@ -14,6 +15,7 @@ require (
 	github.com/urfave/cli v1.22.17
 	go.etcd.io/bbolt v1.4.3
 	go.podman.io/podman/v6 v6.0.0-20260521125140-2d09c79dfe54
+	go.podman.io/storage v1.63.1-0.20260519201413-7e9ee2072844
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -21,7 +23,6 @@ require (
 	cyphar.com/go-pathrs v0.2.4 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/Microsoft/hcsshim v0.14.0-rc.1 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
@@ -190,7 +191,6 @@ require (
 	go.podman.io/buildah v1.42.1-0.20260501153811-377cf64e213b // indirect
 	go.podman.io/common v0.67.2-0.20260519201413-7e9ee2072844 // indirect
 	go.podman.io/image/v5 v5.39.3-0.20260519201413-7e9ee2072844 // indirect
-	go.podman.io/storage v1.63.1-0.20260519201413-7e9ee2072844 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/mod v0.35.0 // indirect
