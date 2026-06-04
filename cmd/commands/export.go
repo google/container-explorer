@@ -29,9 +29,9 @@ import (
 
 var ExportCommand = cli.Command{
 	Name:        "export",
-	Usage:       "export a container as image or archive",
-	Description: "export a container as image or archive",
-	ArgsUsage:   "ID OUTPUTDIR",
+	Usage:       "export a container or all containers as image or archive",
+	Description: "export a container or all containers as image or archive",
+	ArgsUsage:   "[flag] [ID] OUTPUTDIR",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "image, i",
@@ -41,66 +41,9 @@ var ExportCommand = cli.Command{
 			Name:  "archive, a",
 			Usage: "output container as archive",
 		},
-	},
-	Action: func(clictx *cli.Context) error {
-
-		// Export a container is only supported on a Linux operating system.
-		if runtime.GOOS != "linux" {
-			return fmt.Errorf("exporting a container is only supported on Linux")
-		}
-
-		if clictx.NArg() < 2 {
-			return fmt.Errorf("container ID and output directory are required")
-		}
-
-		containerID := clictx.Args().First()
-		outputDir := clictx.Args().Get(1)
-
-		exportAsImage := clictx.Bool("image")
-		exportAsArchive := clictx.Bool("archive")
-
-		// At least one options is required. If not provided by user
-		// export as image file.
-		if !exportAsArchive && !exportAsImage {
-			exportAsImage = true
-		}
-
-		exportOptions := make(map[string]bool)
-		exportOptions["image"] = exportAsImage
-		exportOptions["archive"] = exportAsArchive
-
-		log.WithFields(log.Fields{
-			"containerID":     containerID,
-			"outputDir":       outputDir,
-			"exportAsImage":   exportAsImage,
-			"exportAsArchive": exportAsArchive,
-		}).Debug("processing export request")
-
-		matched, err := ForMatchingContainer(GlobalConfig.Context, containerID, func(xplr explorers.ContainerExplorer) error {
-			return xplr.ExportContainer(GlobalConfig.Context, containerID, outputDir, exportOptions)
-		})
-
-		if !matched {
-			return fmt.Errorf("no matching container")
-		}
-		return err
-	},
-}
-
-var ExportAllCommand = cli.Command{
-	Name:        "export-all",
-	Aliases:     []string{"export_all"},
-	Usage:       "export all containers as image or archive",
-	Description: "export all containers as image or archive",
-	ArgsUsage:   "OUTPUTDIR",
-	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "image, i",
-			Usage: "output container as raw image",
-		},
-		cli.BoolFlag{
-			Name:  "archive, a",
-			Usage: "output container as archive",
+			Name:  "all",
+			Usage: "export all containers",
 		},
 		cli.StringFlag{
 			Name:  "container-engine, e",
@@ -117,19 +60,14 @@ var ExportAllCommand = cli.Command{
 		},
 	},
 	Action: func(clictx *cli.Context) error {
-		// Exporting containers only supported on a Linux operating system.
-		if runtime.GOOS != "linux" {
-			return fmt.Errorf("exporting containers is only supported on Linux")
-		}
 
-		if clictx.NArg() < 1 {
-			return fmt.Errorf("output directory is required")
+		// Export a container is only supported on a Linux operating system.
+		if runtime.GOOS != "linux" {
+			return fmt.Errorf("exporting a container is only supported on Linux")
 		}
-		outputDir := clictx.Args().First()
 
 		exportAsImage := clictx.Bool("image")
 		exportAsArchive := clictx.Bool("archive")
-		containerEngine := clictx.String("container-engine")
 
 		// At least one options is required. If not provided by user
 		// export as image file.
@@ -141,21 +79,59 @@ var ExportAllCommand = cli.Command{
 		exportOptions["image"] = exportAsImage
 		exportOptions["archive"] = exportAsArchive
 
-		filterString := clictx.String("filter")
-		filterMap := getFilterMap(filterString)
+		if clictx.Bool("all") {
+			if clictx.NArg() < 1 {
+				return fmt.Errorf("output directory is required")
+			}
+			outputDir := clictx.Args().First()
+			containerEngine := clictx.String("container-engine")
 
-		exportSupportContainers := clictx.Bool("export-support-containers")
+			filterString := clictx.String("filter")
+			filterMap := getFilterMap(filterString)
 
-		exps := GetExplorers()
-		for _, xplr := range exps {
-			engineName := xplr.Type()
-			if containerEngine == "all" || strings.ToLower(containerEngine) == engineName {
-				if err := xplr.ExportAllContainers(GlobalConfig.Context, outputDir, exportOptions, filterMap, exportSupportContainers); err != nil {
-					log.Errorf("exporting all %s containers as image or archive: %v", engineName, err)
+			exportSupportContainers := clictx.Bool("export-support-containers")
+
+			log.WithFields(log.Fields{
+				"containerEngine":         containerEngine,
+				"exportAsImage":           exportAsImage,
+				"exportAsArchive":         exportAsArchive,
+				"filter":                  filterString,
+				"exportSupportContainers": exportSupportContainers,
+			}).Debug("exporting all containers")
+
+			exps := GetExplorers()
+			for _, xplr := range exps {
+				engineName := xplr.Type()
+				if containerEngine == "all" || strings.ToLower(containerEngine) == engineName {
+					if err := xplr.ExportAllContainers(GlobalConfig.Context, outputDir, exportOptions, filterMap, exportSupportContainers); err != nil {
+						log.Errorf("exporting all %s containers as image or archive: %v", engineName, err)
+					}
 				}
 			}
+			return nil
 		}
 
-		return nil
+		if clictx.NArg() < 2 {
+			return fmt.Errorf("container ID and output directory are required")
+		}
+
+		containerID := clictx.Args().First()
+		outputDir := clictx.Args().Get(1)
+
+		log.WithFields(log.Fields{
+			"containerID":     containerID,
+			"outputDir":       outputDir,
+			"exportAsImage":   exportAsImage,
+			"exportAsArchive": exportAsArchive,
+		}).Debug("processing export request")
+
+		matched, err := ForMatchingContainer(GlobalConfig.Context, containerID, func(xplr explorers.ContainerExplorer) error {
+			return xplr.ExportContainer(GlobalConfig.Context, containerID, outputDir, exportOptions)
+		})
+
+		if !matched {
+			return fmt.Errorf("no matching container")
+		}
+		return err
 	},
 }

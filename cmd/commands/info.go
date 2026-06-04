@@ -69,3 +69,38 @@ var infoContainer = cli.Command{
 		return err
 	},
 }
+
+var InspectCommand = cli.Command{
+	Name:        "inspect",
+	Usage:       "show container internal information",
+	Description: "show container internal information",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "spec, s",
+			Usage: "show only container spec",
+		},
+	},
+	Action: func(clictx *cli.Context) error {
+
+		if clictx.NArg() < 1 {
+			return fmt.Errorf("container id is required")
+		}
+
+		containerID := clictx.Args().First()
+		spec := clictx.Bool("spec")
+
+		matched, err := ForMatchingContainer(GlobalConfig.Context, containerID, func(xplr explorers.ContainerExplorer) error {
+			info, err := xplr.InfoContainer(GlobalConfig.Context, containerID, spec)
+			if err != nil {
+				return err
+			}
+			printAsJSON(info)
+			return nil
+		})
+
+		if !matched {
+			log.Errorf("container %s not found", containerID)
+		}
+		return err
+	},
+}
