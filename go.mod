@@ -1,8 +1,6 @@
 module github.com/google/container-explorer
 
-go 1.23.0
-
-toolchain go1.24.3
+go 1.24.3
 
 require (
 	github.com/containerd/containerd v1.7.29
