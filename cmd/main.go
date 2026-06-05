@@ -88,11 +88,10 @@ func main() {
 	app.Commands = []cli.Command{
 		cecommands.ListCommand,
 		cecommands.InfoCommand,
+		cecommands.InspectCommand,
 		cecommands.MountCommand,
-		cecommands.MountAllCommand,
 		cecommands.DriftCommand,
 		cecommands.ExportCommand,
-		cecommands.ExportAllCommand,
 	}
 
 	app.Before = func(clictx *cli.Context) error {

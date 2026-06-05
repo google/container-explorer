@@ -19,6 +19,6 @@ linters:
     - gosec
 run:
   timeout: 5m
-  go: '1.18'
+  go: '1.25.10'
   skip-dirs:
     - script
