@@ -24,6 +24,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // PathExists returns true if the specified file or directory exists.
@@ -108,7 +110,7 @@ func CalculateDirectorySize(rootPath string) (int64, error) {
 		if statErr != nil {
 			// If it's a broken symlink, skip it.
 			if os.IsNotExist(statErr) && (d.Type()&fs.ModeSymlink != 0) {
-				fmt.Fprintf(os.Stderr, "Warning: skipping broken symlink %s\n", path)
+				log.Debugf("skipping broken symlink %s", path)
 				return nil // Continue walking
 			}
 			return fmt.Errorf("failed to stat %s: %w", path, statErr)
