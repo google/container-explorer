@@ -831,6 +831,9 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			log.WithFields(log.Fields{"containerID": ctr.ID, "error": err}).Error("getting container information")
 			continue
 		}
+		if err := e.resolveSnapshotter(ctx, &container); err != nil {
+			return nil, fmt.Errorf("failed to resolve snapshotter: %w", err)
+		}
 		// Snapshot database metadata.db access
 		opts := bolt.Options{
 			ReadOnly: true,
