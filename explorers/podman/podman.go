@@ -493,7 +493,7 @@ func (e *explorer) getUserHomeDirs() ([]string, error) {
 		// ubuntu:x:1000:1000:Ubuntu:/home/ubuntu:/bin/bash
 		parts := strings.Split(passwdLine, ":")
 		if len(parts) < 7 {
-			log.WithField("line", passwdLine).Debug("skipping malformed passwd entry")
+			log.WithField("line", "REDACTED").Debug("skipping malformed passwd entry")
 			continue
 		}
 
@@ -503,7 +503,7 @@ func (e *explorer) getUserHomeDirs() ([]string, error) {
 		}
 
 		if parts[5] == "" {
-			log.WithField("line", passwdLine).Debug("passwd entry missing home directory")
+			log.WithField("line", "REDACTED").Debug("passwd entry missing home directory")
 			continue
 		}
 
