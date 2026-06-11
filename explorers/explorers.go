@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package explorers defines the core interfaces and data structures for exploring container filesystems,
+// images, namespaces, snapshots, and metadata across different container runtimes.
 package explorers
 
 import (
@@ -29,13 +31,13 @@ type ContainerExplorer interface {
 	ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]Drift, error)
 
 	// ExportAllContainers exports all Docker and containerd containers.
-	ExportAllContainers(ctx context.Context, outputDir string, exportOption map[string]bool, filter map[string]string, exportSupportContainers bool) error
+	ExportAllContainers(ctx context.Context, outputDir string, exportOptions map[string]bool, filter map[string]string, exportSupportContainers bool) error
 
 	// ExportContainer exports a container as an image or archive.
-	ExportContainer(ctx context.Context, containerID string, outputDir string, exportOption map[string]bool) error
+	ExportContainer(ctx context.Context, containerID string, outputDir string, exportOptions map[string]bool) error
 
 	// InfoContainer returns container internal information
-	InfoContainer(ctx context.Context, containerid string, spec bool) (interface{}, error)
+	InfoContainer(ctx context.Context, containerID string, spec bool) (any, error)
 
 	// ListContainers returns all the containers in all the namespaces.
 	//
@@ -63,11 +65,17 @@ type ContainerExplorer interface {
 	MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error
 
 	// MountContainer mounts a container to the specified path
-	MountContainer(ctx context.Context, containerid string, mountpoint string) error
+	MountContainer(ctx context.Context, containerID string, mountpoint string) error
 
 	// SnapshotRoot returns the directory containing snapshots and snapshot
 	// database i.e. metadata.db
 	//
 	// SnapshotRoot is required for the containers managed using containerd.
 	SnapshotRoot(snapshotter string) string
+
+	// GetContainerByID returns ContainerExplorer for the ID or nil
+	GetContainerByID(ctx context.Context, containerID string) (*Container, error)
+
+	// Type returns the explorer type (e.g., containerd, docker, podman)
+	Type() string
 }

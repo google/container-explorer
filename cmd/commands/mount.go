@@ -19,17 +19,38 @@ package commands
 import (
 	"fmt"
 	"runtime"
+	"strings"
 
-	"github.com/containerd/containerd/namespaces"
+	"github.com/google/container-explorer/explorers"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
 var MountCommand = cli.Command{
 	Name:        "mount",
-	Usage:       "mount a container to a mount point",
-	Description: "mount a container to a mount point",
-	ArgsUsage:   "ID MOUNTPOINT",
+	Usage:       "mount a container or all containers to a mount point",
+	Description: "mount a container or all containers to a mount point",
+	ArgsUsage:   "[flag] [ID] MOUNTPOINT",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "all",
+			Usage: "mount all containers",
+		},
+		cli.StringFlag{
+			Name:  "container-engine, e",
+			Usage: "supported container engines are docker, containerd, and podman",
+			Value: "all",
+		},
+		cli.StringFlag{
+			Name:  "filter, f",
+			Usage: "comma separated label filter using key=value pair",
+		},
+		cli.BoolFlag{
+			Name:  "mount-support-containers, s",
+			Usage: "mount Kubernetes supporting containers",
+		},
+	},
 	Action: func(clictx *cli.Context) error {
 
 		// Mounting a container is only supported on a Linux operating system.
@@ -37,33 +58,49 @@ var MountCommand = cli.Command{
 			return fmt.Errorf("mounting a container is only supported on Linux")
 		}
 
+		if clictx.Bool("all") {
+			if clictx.NArg() < 1 {
+				return fmt.Errorf("mount point is required")
+			}
+
+			mountpoint := clictx.Args().First()
+			containerEngine := clictx.String("container-engine")
+			filter := clictx.String("filter")
+			skipSupportContainer := !clictx.Bool("mount-support-containers")
+
+			log.WithFields(log.Fields{
+				"containerEngine":      containerEngine,
+				"filter":               filter,
+				"skipSupportContainer": skipSupportContainer,
+			}).Debug("mounting all containers")
+
+			exps := GetExplorers()
+			for _, xplr := range exps {
+				engineName := xplr.Type()
+				if containerEngine == "all" || strings.ToLower(containerEngine) == engineName {
+					if err := xplr.MountAllContainers(GlobalConfig.Context, mountpoint, filter, skipSupportContainer); err != nil {
+						log.Errorf("mounting %s containers: %v", engineName, err)
+					}
+				}
+			}
+			return nil
+		}
+
+		// Mount individual container
 		if clictx.NArg() < 2 {
 			return fmt.Errorf("container id and mount point are required")
 		}
 
-		namespace := clictx.GlobalString("namespace")
-		containerid := clictx.Args().First()
+		containerID := clictx.Args().First()
 		mountpoint := clictx.Args().Get(1)
 
-		log.WithFields(log.Fields{
-			"namespace":   namespace,
-			"containerid": containerid,
-			"mountpoint":  mountpoint,
-		}).Debug("user provided mount options")
+		matched, err := ForMatchingContainer(GlobalConfig.Context, containerID, func(xplr explorers.ContainerExplorer) error {
+			return xplr.MountContainer(GlobalConfig.Context, containerID, mountpoint)
+		})
 
-		ctx, exp, cancel, err := explorerEnvironment(clictx)
-		if err != nil {
-			return err
+		if !matched {
+			log.Errorf("container %s not found", containerID)
 		}
-		defer cancel()
-
-		ctx = namespaces.WithNamespace(ctx, namespace)
-
-		if err := exp.MountContainer(ctx, containerid, mountpoint); err != nil {
-			return err
-		}
-
-		// default return
-		return nil
+		return err
 	},
 }

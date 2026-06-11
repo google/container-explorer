@@ -19,7 +19,9 @@ package commands
 import (
 	"fmt"
 	"runtime"
+	"strings"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
@@ -31,11 +33,16 @@ var MountAllCommand = cli.Command{
 	ArgsUsage:   "[flag] MOUNT_POINT",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "filter",
+			Name:  "container-engine, e",
+			Usage: "support container engines are docker, containerd, and podman",
+			Value: "all",
+		},
+		cli.StringFlag{
+			Name:  "filter, f",
 			Usage: "comma separated label filter using key=value pair",
 		},
 		cli.BoolFlag{
-			Name:  "mount-support-containers",
+			Name:  "mount-support-containers, s",
 			Usage: "mount Kubernetes supporting containers",
 		},
 	},
@@ -50,18 +57,26 @@ var MountAllCommand = cli.Command{
 		}
 
 		mountpoint := clictx.Args().First()
+		containerEngine := clictx.String("container-engine")
 		filter := clictx.String("filter")
+		skipSupportContainer := !clictx.Bool("mount-support-containers")
 
-		ctx, exp, cancel, err := explorerEnvironment(clictx)
-		if err != nil {
-			return err
-		}
-		defer cancel()
+		log.WithFields(log.Fields{
+			"containerEngine":      containerEngine,
+			"filter":               filter,
+			"skipSupportContainer": skipSupportContainer,
+		}).Debug("mounting all containers")
 
-		if err := exp.MountAllContainers(ctx, mountpoint, filter, !clictx.Bool("mount-support-containers")); err != nil {
-			return err
+		exps := GetExplorers()
+		for _, xplr := range exps {
+			engineName := xplr.Type()
+			if containerEngine == "all" || strings.ToLower(containerEngine) == engineName {
+				if err := xplr.MountAllContainers(GlobalConfig.Context, mountpoint, filter, skipSupportContainer); err != nil {
+					log.Errorf("mounting %s containers: %v", engineName, err)
+				}
+			}
 		}
-		// default
-		return nil
+
+		return nil // default
 	},
 }

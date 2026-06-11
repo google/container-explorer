@@ -24,14 +24,14 @@ import "time"
 //
 // The State structure only maps the required attributes form state.json.
 type State struct {
-	ID                  string                 `json:"state,omitempty"`
-	InitProcessPid      int                    `json:"init_process_pid"`
-	InitProcessstart    int                    `json:"init_process_start"`
-	Created             time.Time              `json:"created"`
-	Config              map[string]interface{} `json:"config"`
-	Rootless            bool                   `json:"rootless"`
-	CgroupPaths         map[string]string      `json:"cgroup_paths"`
-	NamespacePaths      map[string]string      `json:"namespace_paths"`
-	ExternalDescriptors []string               `json:"external_descriptors"`
-	IntelRdtPath        string                 `json:"intel_rdt_path"`
+	ID                  string            `json:"state,omitempty"`
+	InitProcessPid      int               `json:"init_process_pid"`
+	InitProcessstart    int               `json:"init_process_start"`
+	Created             time.Time         `json:"created"`
+	Config              map[string]any    `json:"config"`
+	Rootless            bool              `json:"rootless"`
+	CgroupPaths         map[string]string `json:"cgroup_paths"`
+	NamespacePaths      map[string]string `json:"namespace_paths"`
+	ExternalDescriptors []string          `json:"external_descriptors"`
+	IntelRdtPath        string            `json:"intel_rdt_path"`
 }
