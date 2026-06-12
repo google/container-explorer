@@ -1,24 +1,39 @@
-linters-settings:
-  misspell:
-    locale: US
+version: "2"
+run:
+  go: 1.25.10
 linters:
-  disable-all: true
+  default: none
   enable:
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - revive
     - staticcheck
     - unconvert
+    - unused
+    - whitespace
+  settings:
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
     - gofmt
     - goimports
-    - gosimple
-    - govet
-    - revive
-    - ineffassign
-    - vet
-    - unused
-    - misspell
-    - whitespace
-    - gosec
-run:
-  timeout: 5m
-  go: '1.25.10'
-  skip-dirs:
-    - script
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
