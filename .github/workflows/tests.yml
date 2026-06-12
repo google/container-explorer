@@ -28,9 +28,10 @@ jobs:
           sudo apt-get install -y libbtrfs-dev libgpgme-dev pkg-config
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
+          install-mode: goinstall
 
   test:
     name: Tests
