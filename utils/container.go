@@ -18,6 +18,7 @@ package utils
 
 import "github.com/google/container-explorer/explorers"
 
+// IgnoreContainer returns true if the container should be ignored based on the filter labels.
 func IgnoreContainer(container explorers.Container, filter map[string]string) bool {
 	ignore := false
 
@@ -36,6 +37,7 @@ func IgnoreContainer(container explorers.Container, filter map[string]string) bo
 	return ignore
 }
 
+// IncludeContainer returns true if the container should be included based on the filter labels.
 func IncludeContainer(container explorers.Container, filter map[string]string) bool {
 	if filter == nil {
 		return true

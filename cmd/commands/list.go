@@ -51,7 +51,7 @@ var listNamespaces = cli.Command{
 	Aliases:     []string{"namespace", "ns"},
 	Usage:       "list all namespaces",
 	Description: "list all namespaces",
-	Action: func(clictx *cli.Context) error {
+	Action: func(_ *cli.Context) error {
 		exps := GetExplorers()
 		fmt.Println("NAMESPACE")
 		for _, xplr := range exps {
@@ -358,7 +358,7 @@ var listContents = cli.Command{
 	Aliases:     []string{"content"},
 	Usage:       "list content for all namespaces",
 	Description: "list content for all namespaces",
-	Action: func(clictx *cli.Context) error {
+	Action: func(_ *cli.Context) error {
 		output := GlobalConfig.Output
 		outputfile := GlobalConfig.OutputFile
 
@@ -510,7 +510,7 @@ var listTasks = cli.Command{
 	Aliases:     []string{"task"},
 	Usage:       "list tasks",
 	Description: "list container tasks",
-	Action: func(clictx *cli.Context) error {
+	Action: func(_ *cli.Context) error {
 		output := GlobalConfig.Output
 		outputfile := GlobalConfig.OutputFile
 

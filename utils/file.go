@@ -67,6 +67,7 @@ func GenerateRandomString(stringLength int) string {
 	return string(b)
 }
 
+// GetMountPoint returns a random temporary directory path to be used as a mount point.
 func GetMountPoint() string {
 	mountSuffix := GenerateRandomString(6)
 	mountPoint := filepath.Join(os.TempDir(), "mnt", mountSuffix)

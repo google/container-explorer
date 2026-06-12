@@ -44,11 +44,11 @@ type explorer struct {
 	imageRoot      string // mounted image path
 	containerdRoot string
 	dockerRoot     string
-	manifestFile string // path to manifest database file i.e. meta.db
-	snapshotFile string
-	layercache   string                      // layer cache folder within snapshot root
-	mdb          *bolt.DB                    // manifest database
-	sc           *explorers.SupportContainer // support container structure object
+	manifestFile   string // path to manifest database file i.e. meta.db
+	snapshotFile   string
+	layercache     string                      // layer cache folder within snapshot root
+	mdb            *bolt.DB                    // manifest database
+	sc             *explorers.SupportContainer // support container structure object
 }
 
 // NewExplorer returns a ContainerExplorer interface to explore containerd.
@@ -98,7 +98,7 @@ func (e *explorer) SnapshotRoot(snapshotter string) string {
 	dirs, _ := filepath.Glob(filepath.Join(e.containerdRoot, "*"))
 	for _, dir := range dirs {
 		if strings.Contains(strings.ToLower(dir), strings.ToLower(snapshotter)) {
-			filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			filepath.WalkDir(dir, func(path string, _ fs.DirEntry, _ error) error {
 				if strings.Contains(path, "metadata.db") {
 					snapshotRoot, _ = filepath.Split(path)
 					log.WithFields(log.Fields{
@@ -220,7 +220,7 @@ func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error)
 		return nil, err
 	}
 
-	store := NewBlobStore(e.mdb)
+	store := newBlobStore(e.mdb)
 
 	for _, ns := range nss {
 		ctx = namespaces.WithNamespace(ctx, ns)
@@ -284,7 +284,7 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 		}
 	}
 
-	store := NewSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssdb)
+	store := newSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssdb)
 
 	for _, ns := range nss {
 		ctx = namespaces.WithNamespace(ctx, ns)
@@ -413,7 +413,7 @@ func (e *explorer) GetContainerTask(ctx context.Context, ctr explorers.Container
 }
 
 // GetContainerState returns container runtime state
-func (e *explorer) GetContainerState(ctx context.Context, ctr explorers.Container) (explorers.State, error) {
+func (e *explorer) GetContainerState(_ context.Context, ctr explorers.Container) (explorers.State, error) {
 	stateDir := filepath.Join(e.imageRoot, "run", "containerd", "runc", ctr.Namespace, ctr.ID)
 	if !explorers.PathExists(stateDir, false) {
 		return explorers.State{}, fmt.Errorf("container state directory %s did not exist", stateDir)
@@ -537,7 +537,7 @@ func (e *explorer) resolveSnapshotter(ctx context.Context, container *containers
 
 				// Search for a snapshot key containing container.ID
 				var matchedKey string
-				_ = ssbkt.ForEach(func(k, v []byte) error {
+				_ = ssbkt.ForEach(func(k, _ []byte) error {
 					keyStr := string(k)
 					if strings.Contains(keyStr, container.ID) {
 						matchedKey = keyStr
@@ -559,7 +559,7 @@ func (e *explorer) resolveSnapshotter(ctx context.Context, container *containers
 		}
 
 		// If container.Snapshotter is empty, search all snapshotters
-		_ = bkt.ForEach(func(k, v []byte) error {
+		_ = bkt.ForEach(func(k, _ []byte) error {
 			if err := searchSnapshotter(string(k)); err != nil {
 				return err
 			}
@@ -628,7 +628,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerID string, mount
 	}
 
 	// snapshot store
-	ssStore := NewSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssDB)
+	ssStore := newSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssDB)
 	var mountArgs []string
 	hasWorkDir := false
 	snapshotRoot, _ := filepath.Split(e.snapshotFile)
@@ -675,7 +675,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerID string, mount
 	if err != nil {
 		log.Errorf("running mount command: %v", err)
 
-			log.Error("invalid overlayfs lowerdir path: use --debug to view lowerdir path")
+		log.Error("invalid overlayfs lowerdir path: use --debug to view lowerdir path")
 
 		return err
 	}
@@ -856,7 +856,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			continue
 		}
 		// snapshot store
-		ssstore := NewSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssdb)
+		ssstore := newSnapshotStore(e.containerdRoot, e.layercache, e.mdb, ssdb)
 		hasWorkDir := false
 		snapshotRoot, _ := filepath.Split(e.snapshotFile)
 		matches, _ := filepath.Glob(filepath.Join(snapshotRoot, "snapshots/*/work"))

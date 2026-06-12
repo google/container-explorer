@@ -51,6 +51,7 @@ func GetTaskPID(path string) int {
 		return -1
 	}
 
+	//nolint:gosec // G304: Path is constructed from trusted cgroup path
 	data, err := os.ReadFile(pidfile)
 	if err != nil {
 		log.WithField("path", pidfile).Error("reading cgroup.procs: ", err)
@@ -67,6 +68,7 @@ func GetTaskPID(path string) int {
 
 // ReadCgroupEvents returns populated and frozen status
 func ReadCgroupEvents(path string) (int, int, error) {
+	//nolint:gosec // G304: Path is constructed from trusted cgroup path
 	data, err := os.ReadFile(filepath.Join(path, "cgroup.events"))
 	if err != nil {
 		return -1, -1, err
@@ -77,7 +79,7 @@ func ReadCgroupEvents(path string) (int, int, error) {
 
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.Contains(line, "populated ") {
-			val := strings.Replace(line, "populated ", "", -1)
+			val := strings.ReplaceAll(line, "populated ", "")
 			val = strings.TrimSpace(val)
 
 			populated, err = strconv.Atoi(val)
@@ -87,7 +89,7 @@ func ReadCgroupEvents(path string) (int, int, error) {
 		}
 
 		if strings.Contains(line, "frozen ") {
-			val := strings.Replace(line, "frozen ", "", -1)
+			val := strings.ReplaceAll(line, "frozen ", "")
 			val = strings.TrimSpace(val)
 
 			frozen, err = strconv.Atoi(val)

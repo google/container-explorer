@@ -185,6 +185,7 @@ func ExportContainerImage(ctx context.Context, containerID string, mountpoint st
 	// Source path: mountpoint + "/." to copy contents of the directory, including hidden files.
 	log.Infof("copying contents from %s to %s using 'cp -a'", mountpoint, imageMountDir)
 
+	//nolint:gosec // G204: Command arguments are constructed from verified mountpoints
 	copyCmd := exec.CommandContext(ctx, "cp", "-a", filepath.Join(mountpoint, "."), imageMountDir)
 	copyOutput, err := copyCmd.CombinedOutput()
 	if err != nil {

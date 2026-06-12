@@ -41,7 +41,7 @@ type snapshotStore struct {
 	sdb        *bolt.DB
 }
 
-// NewSnapshotStore returns snapshotStore which handles viewing of snapshot information
+// newSnapshotStore returns snapshotStore which handles viewing of snapshot information
 //
 // In containerd, snapshot information is stored in metadata file meta.db and snapshot
 // database file metadata.db.
@@ -56,7 +56,7 @@ type snapshotStore struct {
 // Snapshot path in snapshot database: metadata.db/v1/snapshots/<snapshot key>
 //   - id - Snapshot file system ID i.e. /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/<id>/fs
 //   - kind - ACTIVE vs COMMITTED
-func NewSnapshotStore(root string, layercache string, db *bolt.DB, sdb *bolt.DB) *snapshotStore {
+func newSnapshotStore(root string, layercache string, db *bolt.DB, sdb *bolt.DB) *snapshotStore {
 	return &snapshotStore{
 		root:       root,
 		layercache: layercache,
@@ -90,7 +90,7 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 
 		// Handle each snapshotter
 		// meta.db/v1/<namespace>/<snapshots>/<snapshotter>
-		bkt.ForEach(func(k, v []byte) error {
+		bkt.ForEach(func(k, _ []byte) error {
 			ssbkt := bkt.Bucket(k)
 			if ssbkt == nil {
 				return nil // empty snapshotter
@@ -98,7 +98,7 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 
 			// Handle each snapshot key
 			// meta.db/v1/<namespace>/snapshots/<snapshotter>/<snapshot key>
-			return ssbkt.ForEach(func(k1, v1 []byte) error {
+			return ssbkt.ForEach(func(k1, _ []byte) error {
 				var (
 					skinfo = explorers.SnapshotKeyInfo{
 						ContainerType: "containerd",
@@ -332,6 +332,9 @@ func readOverlaysnapshotKey(skinfo *explorers.SnapshotKeyInfo, bkt *bolt.Bucket)
 	skinfo.OverlayPath = fmt.Sprintf("snapshots/%d/fs", skinfo.ID)
 
 	kind, _ := binary.Uvarint(bkt.Get(bucketKeyKind))
+	if kind > 255 {
+		return fmt.Errorf("invalid snapshot kind value: %d", kind)
+	}
 	skinfo.Kind = snapshots.Kind(uint8(kind))
 
 	skinfo.Size, _ = binary.Uvarint(bkt.Get(bucketKeySize))
@@ -375,7 +378,7 @@ func snapshotRootDir(root string, snapshotter string) string {
 	snapshotRoot := ""
 	for _, dir := range dirs {
 		if strings.Contains(strings.ToLower(dir), strings.ToLower(snapshotter)) {
-			filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			filepath.WalkDir(dir, func(path string, _ fs.DirEntry, _ error) error {
 				if strings.Contains(path, "metadata.db") {
 					snapshotRoot, _ = filepath.Split(path)
 					log.WithFields(log.Fields{

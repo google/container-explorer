@@ -36,23 +36,23 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 
-	"github.com/containerd/containerd/containers"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/BurntSushi/toml"
+	"github.com/containerd/containerd/containers"
+	_ "github.com/mattn/go-sqlite3" // Required for sqlite3 driver
 	log "github.com/sirupsen/logrus"
 	"go.podman.io/podman/v6/libpod"
 	storageTypes "go.podman.io/storage/types"
 )
 
 type explorer struct {
-	imageroot string
+	imageroot      string
 	podmanRootDirs []string
 }
 
 // NewExplorer returns ContainerExplorer interface to explore podman containers.
 func NewExplorer(imageroot string) (explorers.ContainerExplorer, error) {
 	e := &explorer{
-		imageroot:imageroot,
+		imageroot: imageroot,
 	}
 
 	rootDirs, err := e.getPodmanRootDirs()
@@ -85,7 +85,7 @@ func (e *explorer) Type() string {
 }
 
 // ListNamespaces returns podman namespaces if exist.
-func (e *explorer) ListNamespaces(ctx context.Context) ([]string, error) {
+func (e *explorer) ListNamespaces(_ context.Context) ([]string, error) {
 	// No namespaces in podman returning nil, nil
 	log.Info("listing namespaces is not supported in podman")
 
@@ -93,7 +93,7 @@ func (e *explorer) ListNamespaces(ctx context.Context) ([]string, error) {
 }
 
 // ListSnapshots returns podman containers snapshots.
-func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyInfo, error) {
+func (e *explorer) ListSnapshots(_ context.Context) ([]explorers.SnapshotKeyInfo, error) {
 	// No snapshots for podman
 	log.Info("listing snapshots is not implemented in podman")
 
@@ -101,7 +101,7 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 }
 
 // SnapshotRoot returns snapshot root directory.
-func (e *explorer) SnapshotRoot(snapshotter string) string {
+func (e *explorer) SnapshotRoot(_ string) string {
 	// No snapshot root for podman
 	log.Info("snapshot root concept is not applicable in podman")
 
@@ -109,7 +109,7 @@ func (e *explorer) SnapshotRoot(snapshotter string) string {
 }
 
 // ListContainers returns all podman containers.
-func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, error) {
+func (e *explorer) ListContainers(_ context.Context) ([]explorers.Container, error) {
 	var podmanContainers []explorers.Container
 
 	for _, podmanRootDir := range e.podmanRootDirs {
@@ -152,7 +152,7 @@ func (e *explorer) ListContainers(ctx context.Context) ([]explorers.Container, e
 }
 
 // ListImages returns podman images.
-func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
+func (e *explorer) ListImages(_ context.Context) ([]explorers.Image, error) {
 	var ceImages []explorers.Image
 
 	for _, podmanRootDir := range e.podmanRootDirs {
@@ -221,14 +221,14 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 }
 
 // ListContent returns container contents.
-func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error) {
+func (e *explorer) ListContent(_ context.Context) ([]explorers.Content, error) {
 	log.Info("listing content is not implemented for podman")
 
 	return nil, nil
 }
 
 // ListTasks returns running tasks.
-func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
+func (e *explorer) ListTasks(_ context.Context) ([]explorers.Task, error) {
 	var containerTasks []explorers.Task
 
 	for _, podmanRootDir := range e.podmanRootDirs {
@@ -283,7 +283,7 @@ func (e *explorer) ListTasks(ctx context.Context) ([]explorers.Task, error) {
 }
 
 // InfoContainer returns container internal information.
-func (e *explorer) InfoContainer(ctx context.Context, containerID string, showSpec bool) (any, error) {
+func (e *explorer) InfoContainer(_ context.Context, containerID string, showSpec bool) (any, error) {
 	var matchedConfig *containerConfig
 	var matchedRootDir string
 
@@ -378,7 +378,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerID string, mount
 }
 
 // MountAllContainers mounts all podman containers.
-func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, filter string, skipsupportcontainers bool) error {
+func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, _ string, _ bool) error {
 	containers, err := e.ListContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("listing container: %w", err)
@@ -409,7 +409,7 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 // ContainerDrift finds the drifted files from containers.
 //   - skipsupportcontainers are only applicable for containerd containers used in GKE. It is not used in Docker and podman.
 //   - filter uses labels to filter the containers. `filter` is not used in podman containers.
-func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsupportcontainers bool, containerID string) ([]explorers.Drift, error) {
+func (e *explorer) ContainerDrift(_ context.Context, _ string, _ bool, containerID string) ([]explorers.Drift, error) {
 	var drifts []explorers.Drift
 
 	for _, podmanRootDir := range e.podmanRootDirs {
@@ -614,7 +614,7 @@ func (e *explorer) readContainerConfig(podmanRootDir string) ([]containerConfig,
 	return configs, nil
 }
 
-func (e *explorer) mountContainer(ctx context.Context, podmanRootDir string, containerID string, layer string, mountpoint string) error {
+func (e *explorer) mountContainer(_ context.Context, podmanRootDir string, containerID string, layer string, mountpoint string) error {
 	overlayDir := filepath.Join(podmanRootDir, "storage", "overlay")
 	layerDir := filepath.Join(overlayDir, layer)
 

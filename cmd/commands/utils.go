@@ -141,5 +141,5 @@ func arrayToString(array []string) string {
 // writeOutputFile writes JSON data to specified file.
 func writeOutputFile(v any, outputfile string) {
 	data, _ := json.Marshal(v)
-	os.WriteFile(outputfile, data, 0644)
+	os.WriteFile(outputfile, data, 0600)
 }

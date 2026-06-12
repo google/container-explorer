@@ -132,8 +132,10 @@ func NewExplorer(imageRoot string, containerdRoot string, dockerRoot string) (ex
 	}, nil
 }
 
-// SnapshotRoot returns the snapshot root director for docker managed
+// SnapshotRoot returns the snapshot root directory for docker managed
 // containers.
+//
+//nolint:revive // function is not yet implemented
 func (e *explorer) SnapshotRoot(snapshotter string) string {
 	// TODO(rmaskey): implement the function
 	return ""
@@ -185,7 +187,7 @@ func (e *explorer) Type() string {
 }
 
 // GetContainerIDs returns container ID
-func (e *explorer) GetContainerIDs(ctx context.Context, containerDir string) ([]string, error) {
+func (e *explorer) GetContainerIDs(_ context.Context, _ string) ([]string, error) {
 	containerPaths, err := filepath.Glob(filepath.Join(e.dockerRoot, containerDirName, "*"))
 	if err != nil {
 		return nil, err
@@ -263,7 +265,7 @@ type imageContentSummary struct {
 }
 
 // ListImages returns information about docker images.
-func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
+func (e *explorer) ListImages(_ context.Context) ([]explorers.Image, error) {
 	// TODO (rmaskey): Handle docker version 1 images
 
 	// Docker version 2
@@ -341,7 +343,7 @@ func (e *explorer) ListImages(ctx context.Context) ([]explorers.Image, error) {
 }
 
 // ListContent returns content information.
-func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error) {
+func (e *explorer) ListContent(_ context.Context) ([]explorers.Content, error) {
 	// TODO(rmaskey): implement the function
 	log.Info("listing docker content not implemented")
 
@@ -349,7 +351,7 @@ func (e *explorer) ListContent(ctx context.Context) ([]explorers.Content, error)
 }
 
 // ListSnapshots returns snapshot information.
-func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyInfo, error) {
+func (e *explorer) ListSnapshots(_ context.Context) ([]explorers.SnapshotKeyInfo, error) {
 	// TODO(rmaskey): implement the function
 	log.Info("listing docker snapshots is not implemented")
 
@@ -357,7 +359,7 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 }
 
 // ListTasks returns container task status
-func (e *explorer) ListTasks(cxt context.Context) ([]explorers.Task, error) {
+func (e *explorer) ListTasks(_ context.Context) ([]explorers.Task, error) {
 	var tasks []explorers.Task
 
 	containerPaths, err := filepath.Glob(filepath.Join(e.dockerRoot, "containers", "*"))
@@ -399,7 +401,7 @@ func (e *explorer) ListTasks(cxt context.Context) ([]explorers.Task, error) {
 }
 
 // InfoContainer returns container internal information.
-func (e *explorer) InfoContainer(ctx context.Context, containerID string, spec bool) (any, error) {
+func (e *explorer) InfoContainer(ctx context.Context, containerID string, _ bool) (any, error) {
 	_, err := e.GetContainerByID(ctx, containerID)
 	if err != nil {
 		return nil, fmt.Errorf("getting container %s: %w", containerID, err)
@@ -428,11 +430,10 @@ func (e *explorer) MountContainer(ctx context.Context, containerID string, mount
 	default:
 		return fmt.Errorf("unsupported storage driver: %s", container.Driver)
 	}
-
 }
 
 // mountDockerV2Container mounts a container to the specified path
-func (e *explorer) mountDockerV2Container(ctx context.Context, container ConfigFile, containerID string, mountpoint string) error {
+func (e *explorer) mountDockerV2Container(_ context.Context, container ConfigFile, containerID string, mountpoint string) error {
 	containerMountIDPath := filepath.Join(e.dockerRoot, imageDirName, container.Driver, "layerdb", "mounts", containerID, "mount-id")
 	log.WithField("containerMountIDPath", containerMountIDPath).Debug("container mount-id path")
 
@@ -446,6 +447,7 @@ func (e *explorer) mountDockerV2Container(ctx context.Context, container ConfigF
 	// build container lower directory
 	lowerdirpath := filepath.Join(e.dockerRoot, container.Driver, mountID, lowerdirName)
 	log.WithField("lowerdirpath", lowerdirpath).Debug("container lowerdir path")
+	//nolint:gosec // G703: Path is constructed from trusted docker root and config
 	data, err := os.ReadFile(lowerdirpath)
 	if err != nil {
 		return fmt.Errorf("reading lower file %v", err)
@@ -459,6 +461,7 @@ func (e *explorer) mountDockerV2Container(ctx context.Context, container ConfigF
 	lowerDir := strings.Join(lowerDirs, ":")
 
 	// Getting upperdir for mounting
+	//nolint:gosec // G703: Path is constructed from trusted docker root and config
 	upperData, err := os.ReadFile(filepath.Join(e.dockerRoot, container.Driver, mountID, "link"))
 	if err != nil {
 		return fmt.Errorf("reading link file %v", err)
@@ -510,7 +513,7 @@ func (e *explorer) GetOverlayfsLayers(namespace string, containerID string) (str
 	}
 
 	overlayPath = filepath.Dir(e.snapshotPath)
-	
+
 	err := e.snapshotDB.View(func(tx *bolt.Tx) error {
 		// Open the top-level "v1" Bucket
 		v1Bucket := tx.Bucket([]byte("v1"))
@@ -606,7 +609,7 @@ func (e *explorer) GetOverlayfsLayers(namespace string, containerID string) (str
 }
 
 // mountDockerV29Container mounts container layers for Docker version 29+ using containerd's overlayfs snapshotter metadata.
-func (e *explorer) mountDockerV29Container(ctx context.Context, container ConfigFile, containerID string, mountpoint string) error {
+func (e *explorer) mountDockerV29Container(_ context.Context, _ ConfigFile, containerID string, mountpoint string) error {
 	upperdir, lowerPaths, err := e.GetOverlayfsLayers("moby", containerID)
 	if err != nil {
 		return fmt.Errorf("getting overlay layers: %w", err)
@@ -816,6 +819,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 
 			upperDirLinkFile := filepath.Join(e.dockerRoot, container.Driver, mountID, "link")
 
+			//nolint:gosec // G703: Path is constructed from trusted docker root and config
 			linkData, err := os.ReadFile(upperDirLinkFile)
 			if err != nil {
 				log.WithFields(log.Fields{
@@ -831,7 +835,7 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			if err != nil {
 				log.WithFields(log.Fields{
 					"containerID": container.ID,
-					"error": err,
+					"error":       err,
 				}).Info("getting upperdir snapshot")
 				continue
 			}
@@ -840,8 +844,8 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 			log.WithField("containerID", container.ID).Warn("unable to find upperdir")
 			log.WithFields(log.Fields{
 				"containerType": e.Type(),
-				"containerID": container.ID,
-				"driver": container.Driver,
+				"containerID":   container.ID,
+				"driver":        container.Driver,
 			}).Info("unsupported driver")
 			upperDir = ""
 			continue
@@ -899,7 +903,7 @@ func (e *explorer) Close() error {
 }
 
 // ReadContainerConfig returns container configuration
-func (e *explorer) ReadContainerConfig(ctx context.Context, containerID string) (ConfigFile, error) {
+func (e *explorer) ReadContainerConfig(_ context.Context, containerID string) (ConfigFile, error) {
 	containerDir := filepath.Join(e.dockerRoot, containerDirName, containerID)
 	log.WithField("containerDir", containerDir).Debug("container directory")
 	if !fileExists(containerDir) {
@@ -948,7 +952,7 @@ func (e *explorer) GetCEContainer(ctx context.Context, containerID string) (expl
 
 	// Extract imagebase name from image name
 	if strings.HasPrefix(config.Name, "/") {
-		cectr.Name = strings.Replace(config.Name, "/", "", -1)
+		cectr.Name = strings.ReplaceAll(config.Name, "/", "")
 	} else {
 		cectr.Name = config.Name
 	}
@@ -968,7 +972,7 @@ func fileExists(path string) bool {
 }
 
 // GetRepositories returns mapping of image ID to name
-func (e *explorer) GetRepositories(ctx context.Context) (map[string]string, error) {
+func (e *explorer) GetRepositories(_ context.Context) (map[string]string, error) {
 	repositoriesDir := filepath.Join(e.dockerRoot, imageDirName)
 	if !fileExists(repositoriesDir) {
 		return nil, fmt.Errorf("image repository directory %s does not exist", repositoriesDir)
@@ -1108,7 +1112,7 @@ func readImageContent(storageName string, storagePath string, digest digest.Dige
 
 // imageBasename returns the base name of an image
 func imageBasename(name string) string {
-	imageBase := strings.Replace(name, "\"", "", -1)
+	imageBase := strings.ReplaceAll(name, "\"", "")
 
 	if strings.Contains(imageBase, "@") {
 		imageBase = strings.Split(imageBase, "@")[0]

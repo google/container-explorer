@@ -16,6 +16,7 @@ limitations under the License.
 
 package explorers
 
+// Task represents a container task/process.
 type Task struct {
 	Namespace     string
 	Name          string

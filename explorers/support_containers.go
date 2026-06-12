@@ -56,6 +56,7 @@ func NewSupportContainer(path string) (*SupportContainer, error) {
 func LoadSupportContainerFromFile(path string) (SupportContainer, error) {
 	var sc SupportContainer
 
+	//nolint:gosec // G304: Path is user-supplied configuration file path
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return SupportContainer{}, fmt.Errorf("reading file %s: %v", path, err)
