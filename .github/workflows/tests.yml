@@ -34,7 +34,7 @@ jobs:
           install-mode: goinstall
 
   test:
-    name: Tests
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
