@@ -22,7 +22,7 @@ import "time"
 type State struct {
 	Running           bool
 	Paused            bool
-	Restarting         bool
+	Restarting        bool
 	OOMKilled         bool
 	RemovalInProgress bool
 	Dead              bool

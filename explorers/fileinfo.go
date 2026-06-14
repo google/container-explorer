@@ -30,6 +30,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// FileInfo holds metadata about a file, used in drift detection.
 type FileInfo struct {
 	FileName     string    `json:"file_name"`
 	FullPath     string    `json:"full_path"`
@@ -45,6 +46,7 @@ type FileInfo struct {
 	FileSHA256   string    `json:"file_sha256,omitempty"`
 }
 
+// AsJSON returns the FileInfo structure serialized as JSON.
 func (f *FileInfo) AsJSON() ([]byte, error) {
 	jsonData, err := json.Marshal(f)
 	if err != nil {
@@ -54,11 +56,11 @@ func (f *FileInfo) AsJSON() ([]byte, error) {
 	return jsonData, nil
 }
 
-// FileSHA256Sum calculates SHA256 hash of the specified
-// file.
+// FileSHA256Sum calculates SHA256 hash of the specified file.
 func FileSHA256Sum(path string) (string, error) {
 	var err error
 
+	//nolint:gosec // G304: Path is dynamic but restricted to container filesystem
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err

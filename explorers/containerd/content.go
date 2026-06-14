@@ -31,11 +31,11 @@ type blobStore struct {
 	db *bolt.DB
 }
 
-// NewBlobStore returns blob store used for content operation
+// newBlobStore returns blob store used for content operation
 //
 // In containerd, content information is stored in metadata file meta.db.
 // i.e. meta.db/v1/<namespace>/content/blob/<blob digest>
-func NewBlobStore(db *bolt.DB) *blobStore {
+func newBlobStore(db *bolt.DB) *blobStore {
 	return &blobStore{
 		db: db,
 	}
@@ -56,7 +56,7 @@ func (c *blobStore) List(ctx context.Context) ([]content.Info, error) {
 			return nil // empty blob
 		}
 
-		return bkt.ForEach(func(k, v []byte) error {
+		return bkt.ForEach(func(k, _ []byte) error {
 			var (
 				info = content.Info{
 					Digest: digest.Digest(string(k)),
