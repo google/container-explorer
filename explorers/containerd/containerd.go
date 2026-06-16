@@ -282,6 +282,13 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 		ReadOnly: true,
 	}
 
+	if e.snapshotFile == "" {
+		snapshotterFolder := e.SnapshotRoot("overlayfs")
+		if snapshotterFolder != "" {
+			e.snapshotFile = filepath.Join(snapshotterFolder, "metadata.db")
+		}
+	}
+
 	var ssdb *bolt.DB
 	if e.snapshotFile != "" {
 		ssdb, err = bolt.Open(e.snapshotFile, 0444, &opts)
