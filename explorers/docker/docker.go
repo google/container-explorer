@@ -73,14 +73,17 @@ type explorer struct {
 // NewExplorer returns a ContainerExplorer interface to explorer docker managed
 // containers.
 func NewExplorer(imageRoot string, containerdRoot string, dockerRoot string) (explorers.ContainerExplorer, error) {
-	if _, err := utils.PathExists(dockerRoot); err != nil {
+	exists, err := utils.PathExists(dockerRoot)
+	if err != nil {
+		return nil, fmt.Errorf("checking docker root directory: %w", err)
+	}
+	if !exists {
 		return nil, fmt.Errorf("docker root directory does not exist")
 	}
 
 	// Checking if containerd directory exists
 	var mdb *bolt.DB
 	var sdb *bolt.DB
-	var err error
 
 	if containerdRoot == "" {
 		return nil, fmt.Errorf("containerd root directory is empty")
