@@ -284,7 +284,7 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 
 	if e.snapshotFile == "" {
 		snapshotterFolder := e.SnapshotRoot("overlayfs")
-		if snapshotterFolder != "" {
+		if snapshotterFolder != "unknown" {
 			e.snapshotFile = filepath.Join(snapshotterFolder, "metadata.db")
 		}
 	}
