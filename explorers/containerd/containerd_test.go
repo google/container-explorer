@@ -626,3 +626,144 @@ func createOverlaySnapshot(tx *bolt.Tx, snapshotKey string, id uint64, kind uint
 
 	return nil
 }
+
+func TestContainerd_DatabaseClosedErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatalf("failed to create meta dir: %v", err)
+	}
+
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to create empty meta.db: %v", err)
+	}
+	db.Close()
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer("", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+	// Close the explorer database immediately to trigger errors
+	exp.Close()
+
+	ctx := context.Background()
+
+	if _, err := exp.ListNamespaces(ctx); err == nil {
+		t.Errorf("ListNamespaces expected error when DB is closed, got nil")
+	}
+
+	if _, err := exp.ListContainers(ctx); err == nil {
+		t.Errorf("ListContainers expected error when DB is closed, got nil")
+	}
+
+	if _, err := exp.ListImages(ctx); err == nil {
+		t.Errorf("ListImages expected error when DB is closed, got nil")
+	}
+
+	if _, err := exp.ListContent(ctx); err == nil {
+		t.Errorf("ListContent expected error when DB is closed, got nil")
+	}
+
+	if _, err := exp.ListSnapshots(ctx); err == nil {
+		t.Errorf("ListSnapshots expected error when DB is closed, got nil")
+	}
+}
+
+func TestListSnapshots_InvalidKind(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+
+	// Create meta.db dir
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatalf("failed to create meta dir: %v", err)
+	}
+
+	// Create snapshotter dir
+	snapshotterDir := filepath.Join(containerdRoot, "io.containerd.snapshotter.v1.overlayfs")
+	if err := os.MkdirAll(snapshotterDir, 0755); err != nil {
+		t.Fatalf("failed to create snapshotter dir: %v", err)
+	}
+
+	// Open and populate meta.db
+	metaDBPath := filepath.Join(metaDir, "meta.db")
+	metaDB, err := bolt.Open(metaDBPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	err = metaDB.Update(func(tx *bolt.Tx) error {
+		nsStore := metadata.NewNamespaceStore(tx)
+		if err := nsStore.Create(context.Background(), "ns1", nil); err != nil {
+			return err
+		}
+		// Create meta snapshot in ns1, overlayfs, key="snap1"
+		return createMetaSnapshot(tx, "ns1", "overlayfs", "snap1", "snapshot-name-1", "parent-1", now)
+	})
+	if err != nil {
+		metaDB.Close()
+		t.Fatalf("failed to populate meta.db: %v", err)
+	}
+	metaDB.Close()
+
+	// Open and populate snapshotter metadata.db with invalid kind
+	ssDBPath := filepath.Join(snapshotterDir, "metadata.db")
+	ssDB, err := bolt.Open(ssDBPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open snapshotter metadata.db: %v", err)
+	}
+
+	err = ssDB.Update(func(tx *bolt.Tx) error {
+		v1Bkt, err := tx.CreateBucketIfNotExists([]byte("v1"))
+		if err != nil {
+			return err
+		}
+		snapshotsBkt, err := v1Bkt.CreateBucketIfNotExists([]byte("snapshots"))
+		if err != nil {
+			return err
+		}
+		keyBkt, err := snapshotsBkt.CreateBucketIfNotExists([]byte("snapshot-name-1"))
+		if err != nil {
+			return err
+		}
+
+		// Write ID
+		idBuf := make([]byte, binary.MaxVarintLen64)
+		n := binary.PutUvarint(idBuf, 42)
+		if err := keyBkt.Put([]byte("id"), idBuf[:n]); err != nil {
+			return err
+		}
+
+		// Write invalid Kind (256)
+		kindBuf := make([]byte, binary.MaxVarintLen64)
+		n = binary.PutUvarint(kindBuf, 256)
+		if err := keyBkt.Put([]byte("kind"), kindBuf[:n]); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		ssDB.Close()
+		t.Fatalf("failed to populate snapshotter metadata.db: %v", err)
+	}
+	ssDB.Close()
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer("", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	snaps, err := exp.ListSnapshots(context.Background())
+	if err == nil {
+		t.Errorf("ListSnapshots expected error when snapshot Kind is invalid (>255) in metadata.db, got nil. Snaps: %+v", snaps)
+	}
+}

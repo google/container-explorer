@@ -209,6 +209,16 @@ func TestReadContainerConfig(t *testing.T) {
 	if config.Config.Image != expectedConfig.Config.Image {
 		t.Errorf("expected Config.Image %s, got %s", expectedConfig.Config.Image, config.Config.Image)
 	}
+
+	// Case 4: Invalid JSON in config.v2.json
+	invalidData := []byte(`{"invalid": "json",`)
+	if err := os.WriteFile(filepath.Join(cDir, "config.v2.json"), invalidData, 0600); err != nil {
+		t.Fatalf("failed to write invalid config.v2.json: %v", err)
+	}
+	_, err = exp.(*explorer).ReadContainerConfig(context.Background(), cID)
+	if err == nil {
+		t.Errorf("ReadContainerConfig expected error for invalid JSON, got nil")
+	}
 }
 
 func TestGetCEContainer(t *testing.T) {
@@ -605,5 +615,116 @@ func TestListNamespaces(t *testing.T) {
 	}
 	if !found1 || !found2 {
 		t.Errorf("expected namespaces 'ns1' and 'ns2', got %v", nss)
+	}
+}
+
+func TestGetContainerByID(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	if err := os.Mkdir(dockerRoot, 0755); err != nil {
+		t.Fatalf("failed to create docker root: %v", err)
+	}
+	if err := os.Mkdir(containerdRoot, 0755); err != nil {
+		t.Fatalf("failed to create containerd root: %v", err)
+	}
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	cID := "test_container"
+	containersDir := filepath.Join(dockerRoot, "containers")
+	cDir := filepath.Join(containersDir, cID)
+	if err := os.MkdirAll(cDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	dockerConfig := ConfigFile{
+		ID:     cID,
+		Name:   "/test-container",
+		Driver: "overlay2",
+	}
+	data, _ := json.Marshal(dockerConfig)
+	if err := os.WriteFile(filepath.Join(cDir, "config.v2.json"), data, 0600); err != nil {
+		t.Fatalf("failed to write config.v2.json: %v", err)
+	}
+
+	// Case 1: Success path
+	ctr, err := exp.GetContainerByID(context.Background(), cID)
+	if err != nil {
+		t.Fatalf("GetContainerByID failed: %v", err)
+	}
+	if ctr.ID != cID {
+		t.Errorf("expected container ID %s, got %s", cID, ctr.ID)
+	}
+
+	// Case 2: Container not found
+	_, err = exp.GetContainerByID(context.Background(), "non_existent")
+	if err == nil {
+		t.Errorf("GetContainerByID expected error for non-existent container, got nil")
+	}
+}
+
+func TestListImages_MissingRepositoriesDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	if err := os.Mkdir(dockerRoot, 0755); err != nil {
+		t.Fatalf("failed to create docker root: %v", err)
+	}
+	if err := os.Mkdir(containerdRoot, 0755); err != nil {
+		t.Fatalf("failed to create containerd root: %v", err)
+	}
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	_, err = exp.ListImages(context.Background())
+	if err == nil {
+		t.Errorf("ListImages expected error for missing repositories directory, got nil")
+	}
+}
+
+func TestListTasks_ErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	if err := os.Mkdir(dockerRoot, 0755); err != nil {
+		t.Fatalf("failed to create docker root: %v", err)
+	}
+	if err := os.Mkdir(containerdRoot, 0755); err != nil {
+		t.Fatalf("failed to create containerd root: %v", err)
+	}
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	containersDir := filepath.Join(dockerRoot, "containers")
+	cDir := filepath.Join(containersDir, "c1")
+	if err := os.MkdirAll(cDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	// Case 1: missing config.v2.json
+	_, err = exp.ListTasks(context.Background())
+	if err == nil {
+		t.Errorf("ListTasks expected error when config.v2.json is missing, got nil")
+	}
+
+	// Case 2: invalid JSON config.v2.json
+	invalidJSON := []byte(`{invalid: json`)
+	if err := os.WriteFile(filepath.Join(cDir, "config.v2.json"), invalidJSON, 0600); err != nil {
+		t.Fatalf("failed to write invalid config: %v", err)
+	}
+
+	_, err = exp.ListTasks(context.Background())
+	if err == nil {
+		t.Errorf("ListTasks expected error when config.v2.json has invalid JSON, got nil")
 	}
 }
