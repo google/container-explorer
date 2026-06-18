@@ -57,12 +57,20 @@ func NewExplorer(imageRoot string, containerdRoot string, dockerRoot string, lay
 		ReadOnly: true,
 	}
 
-	if _, err := utils.PathExists(containerdRoot); err != nil {
+	exists, err := utils.PathExists(containerdRoot)
+	if err != nil {
+		return nil, fmt.Errorf("checking containerd root directory: %w", err)
+	}
+	if !exists {
 		return nil, fmt.Errorf("contained root directory does not exist")
 	}
 
 	manifestFile := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt", "meta.db")
-	if _, err := utils.PathExists(manifestFile); err != nil {
+	exists, err = utils.PathExists(manifestFile)
+	if err != nil {
+		return nil, fmt.Errorf("checking containerd manifest file: %w", err)
+	}
+	if !exists {
 		return nil, fmt.Errorf("containerd manifest file meta.db does not exist")
 	}
 
@@ -272,6 +280,13 @@ func (e *explorer) ListSnapshots(ctx context.Context) ([]explorers.SnapshotKeyIn
 	// snapshot database
 	opts := bolt.Options{
 		ReadOnly: true,
+	}
+
+	if e.snapshotFile == "" {
+		snapshotterFolder := e.SnapshotRoot("overlayfs")
+		if snapshotterFolder != "unknown" {
+			e.snapshotFile = filepath.Join(snapshotterFolder, "metadata.db")
+		}
 	}
 
 	var ssdb *bolt.DB
