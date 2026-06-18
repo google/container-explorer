@@ -90,7 +90,7 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 
 		// Handle each snapshotter
 		// meta.db/v1/<namespace>/<snapshots>/<snapshotter>
-		bkt.ForEach(func(k, _ []byte) error {
+		if err := bkt.ForEach(func(k, _ []byte) error {
 			ssbkt := bkt.Bucket(k)
 			if ssbkt == nil {
 				return nil // empty snapshotter
@@ -119,7 +119,7 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 				// Reading additional snapshot key information from metadata.db
 				// snapshot key
 				if s.sdb != nil {
-					s.sdb.View(func(otx *bolt.Tx) error {
+					err := s.sdb.View(func(otx *bolt.Tx) error {
 						log.WithFields(log.Fields{
 							"snapshot key":  skinfo.Key,
 							"snapshot name": skinfo.Name,
@@ -131,16 +131,19 @@ func (s *snapshotStore) List(ctx context.Context) ([]explorers.SnapshotKeyInfo, 
 							}).Info("empty metata.db snapshot key bucket")
 							return nil
 						}
-						readOverlaysnapshotKey(&skinfo, skbkt)
-
-						return nil
+						return readOverlaysnapshotKey(&skinfo, skbkt)
 					})
+					if err != nil {
+						return err
+					}
 				}
 
 				skinfos = append(skinfos, skinfo)
 				return nil
 			})
-		})
+		}); err != nil {
+			return err
+		}
 
 		return nil
 	}); err != nil {
