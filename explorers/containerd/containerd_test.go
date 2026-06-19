@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/gogo/protobuf/types"
 	"github.com/google/container-explorer/explorers"
+	"github.com/google/container-explorer/utils"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	oci "github.com/opencontainers/runtime-spec/specs-go"
 	bolt "go.etcd.io/bbolt"
@@ -765,5 +767,418 @@ func TestListSnapshots_InvalidKind(t *testing.T) {
 	snaps, err := exp.ListSnapshots(context.Background())
 	if err == nil {
 		t.Errorf("ListSnapshots expected error when snapshot Kind is invalid (>255) in metadata.db, got nil. Snaps: %+v", snaps)
+	}
+}
+
+type mockCommandCall struct {
+	Name string
+	Args []string
+}
+
+type mockCommandResponse struct {
+	Output []byte
+	Stdout string
+	Stderr string
+	Err    error
+}
+
+type mockCommandRunner struct {
+	Calls     []mockCommandCall
+	Responses map[string]mockCommandResponse
+}
+
+func (m *mockCommandRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	m.Calls = append(m.Calls, mockCommandCall{Name: name, Args: args})
+	if r, ok := m.Responses[name]; ok {
+		return r.Output, r.Err
+	}
+	return nil, nil
+}
+
+func (m *mockCommandRunner) RunSeparate(_ context.Context, name string, args []string, stdout, stderr io.Writer) error {
+	m.Calls = append(m.Calls, mockCommandCall{Name: name, Args: args})
+	if r, ok := m.Responses[name]; ok {
+		if r.Stdout != "" {
+			_, _ = stdout.Write([]byte(r.Stdout))
+		}
+		if r.Stderr != "" {
+			_, _ = stderr.Write([]byte(r.Stderr))
+		}
+		return r.Err
+	}
+	return nil
+}
+
+func (m *mockCommandRunner) RunWithoutContext(name string, args ...string) ([]byte, error) {
+	m.Calls = append(m.Calls, mockCommandCall{Name: name, Args: args})
+	if r, ok := m.Responses[name]; ok {
+		return r.Output, r.Err
+	}
+	return nil, nil
+}
+
+func TestExportContainer(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(containerdRoot, 0755)
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		nsStore := metadata.NewNamespaceStore(tx)
+		return nsStore.Create(context.Background(), "ns1", nil)
+	})
+
+	dbStore := metadata.NewDB(db, nil, nil)
+	cStore := metadata.NewContainerStore(dbStore)
+
+	specObj := oci.Spec{
+		Linux: &oci.Linux{
+			CgroupsPath: "/default/container-1",
+		},
+		Process: &oci.Process{
+			Args: []string{"sleep", "10"},
+		},
+	}
+	specJSON, _ := json.Marshal(specObj)
+	anySpec := &types.Any{
+		TypeUrl: "types.containerd.io/opencontainers/runtime-spec/1/Spec",
+		Value:   specJSON,
+	}
+
+	c := containers.Container{
+		ID:          "container-1",
+		Image:       "ubuntu:latest",
+		Snapshotter: "overlayfs",
+		SnapshotKey: "snap1",
+		Runtime: containers.RuntimeInfo{
+			Name: "io.containerd.runc.v2",
+		},
+		Spec: anySpec,
+	}
+	_, err = cStore.Create(namespaces.WithNamespace(context.Background(), "ns1"), c)
+	if err != nil {
+		db.Close()
+		t.Fatalf("failed to create container: %v", err)
+	}
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		// Create meta snapshots (need a parent so lowerdir is not empty)
+		_ = createMetaSnapshot(tx, "ns1", "overlayfs", "snap1", "snapshot-name-1", "snapshot-name-parent", now)
+		return createMetaSnapshot(tx, "ns1", "overlayfs", "snapshot-name-parent", "snapshot-name-parent", "", now)
+	})
+	db.Close()
+
+	// Open and populate snapshotter metadata.db
+	snapshotterDir := filepath.Join(containerdRoot, "io.containerd.snapshotter.v1.overlayfs")
+	_ = os.MkdirAll(snapshotterDir, 0755)
+	ssDBPath := filepath.Join(snapshotterDir, "metadata.db")
+	ssDB, err := bolt.Open(ssDBPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open snapshotter metadata.db: %v", err)
+	}
+	_ = ssDB.Update(func(tx *bolt.Tx) error {
+		_ = createOverlaySnapshot(tx, "snapshot-name-1", 42, 2, "snapshot-name-parent", 10240, now)
+		return createOverlaySnapshot(tx, "snapshot-name-parent", 41, 2, "", 10240, now)
+	})
+	ssDB.Close()
+
+	// Create directories on disk so Glob matches
+	_ = os.MkdirAll(filepath.Join(snapshotterDir, "snapshots", "42", "work"), 0755)
+	_ = os.MkdirAll(filepath.Join(snapshotterDir, "snapshots", "42", "fs"), 0755)
+	_ = os.MkdirAll(filepath.Join(snapshotterDir, "snapshots", "41", "fs"), 0755)
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer("", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	// Override runner
+	origRunner := utils.Runner
+	mockRunner := &mockCommandRunner{
+		Responses: map[string]mockCommandResponse{
+			"losetup": {Stdout: "/dev/loop123\n", Err: nil},
+		},
+	}
+	utils.Runner = mockRunner
+	defer func() { utils.Runner = origRunner }()
+
+	outputDir := filepath.Join(tmpDir, "output")
+	exportOptions := map[string]bool{
+		"archive": true,
+	}
+
+	err = exp.ExportContainer(context.Background(), "container-1", outputDir, exportOptions)
+	if err != nil {
+		t.Fatalf("ExportContainer failed: %v", err)
+	}
+
+	hasMount := false
+	hasUmount := false
+	hasTar := false
+	for _, c := range mockRunner.Calls {
+		if c.Name == "mount" {
+			hasMount = true
+		}
+		if c.Name == "umount" {
+			hasUmount = true
+		}
+		if c.Name == "tar" {
+			hasTar = true
+		}
+	}
+
+	if !hasMount {
+		t.Errorf("expected 'mount' to be executed")
+	}
+	if !hasUmount {
+		t.Errorf("expected 'umount' to be executed")
+	}
+	if !hasTar {
+		t.Errorf("expected 'tar' to be executed")
+	}
+}
+
+func TestExportAllContainers(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		nsStore := metadata.NewNamespaceStore(tx)
+		return nsStore.Create(context.Background(), "ns1", nil)
+	})
+
+	dbStore := metadata.NewDB(db, nil, nil)
+	cStore := metadata.NewContainerStore(dbStore)
+
+	specObj := oci.Spec{
+		Linux: &oci.Linux{
+			CgroupsPath: "/default/container-1",
+		},
+		Process: &oci.Process{
+			Args: []string{"sleep", "10"},
+		},
+	}
+	specJSON, _ := json.Marshal(specObj)
+	anySpec := &types.Any{
+		TypeUrl: "types.containerd.io/opencontainers/runtime-spec/1/Spec",
+		Value:   specJSON,
+	}
+
+	c := containers.Container{
+		ID:          "container-1",
+		Image:       "ubuntu:latest",
+		Snapshotter: "overlayfs",
+		SnapshotKey: "snap1",
+		Runtime: containers.RuntimeInfo{
+			Name: "io.containerd.runc.v2",
+		},
+		Spec: anySpec,
+	}
+	_, err = cStore.Create(namespaces.WithNamespace(context.Background(), "ns1"), c)
+	if err != nil {
+		db.Close()
+		t.Fatalf("failed to create container: %v", err)
+	}
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		_ = createMetaSnapshot(tx, "ns1", "overlayfs", "snap1", "snapshot-name-1", "snapshot-name-parent", now)
+		return createMetaSnapshot(tx, "ns1", "overlayfs", "snapshot-name-parent", "snapshot-name-parent", "", now)
+	})
+	db.Close()
+
+	snapshotterDir := filepath.Join(containerdRoot, "io.containerd.snapshotter.v1.overlayfs")
+	_ = os.MkdirAll(snapshotterDir, 0755)
+	ssDBPath := filepath.Join(snapshotterDir, "metadata.db")
+	ssDB, err := bolt.Open(ssDBPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open snapshotter metadata.db: %v", err)
+	}
+	_ = ssDB.Update(func(tx *bolt.Tx) error {
+		_ = createOverlaySnapshot(tx, "snapshot-name-1", 42, 2, "snapshot-name-parent", 10240, now)
+		return createOverlaySnapshot(tx, "snapshot-name-parent", 41, 2, "", 10240, now)
+	})
+	ssDB.Close()
+
+	_ = os.MkdirAll(filepath.Join(snapshotterDir, "snapshots", "42", "work"), 0755)
+	_ = os.MkdirAll(filepath.Join(snapshotterDir, "snapshots", "42", "fs"), 0755)
+	_ = os.MkdirAll(filepath.Join(snapshotterDir, "snapshots", "41", "fs"), 0755)
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer("", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	// Override runner
+	origRunner := utils.Runner
+	mockRunner := &mockCommandRunner{
+		Responses: map[string]mockCommandResponse{
+			"losetup": {Stdout: "/dev/loop123\n", Err: nil},
+		},
+	}
+	utils.Runner = mockRunner
+	defer func() { utils.Runner = origRunner }()
+
+	outputDir := filepath.Join(tmpDir, "output")
+	exportOptions := map[string]bool{
+		"archive": true,
+	}
+
+	err = exp.ExportAllContainers(namespaces.WithNamespace(context.Background(), "ns1"), outputDir, exportOptions, nil, false)
+	if err != nil {
+		t.Fatalf("ExportAllContainers failed: %v", err)
+	}
+
+	exportedArchive := filepath.Join(outputDir, "container-1.tar.gz")
+	hasTar := false
+	for _, c := range mockRunner.Calls {
+		if c.Name == "tar" {
+			hasTar = true
+			foundOut := false
+			for _, arg := range c.Args {
+				if arg == exportedArchive {
+					foundOut = true
+				}
+			}
+			if !foundOut {
+				t.Errorf("expected tar command to export to '%s', args were: %v", exportedArchive, c.Args)
+			}
+		}
+	}
+	if !hasTar {
+		t.Errorf("expected 'tar' to be executed")
+	}
+}
+
+func TestContainerDrift(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		nsStore := metadata.NewNamespaceStore(tx)
+		return nsStore.Create(context.Background(), "ns1", nil)
+	})
+
+	dbStore := metadata.NewDB(db, nil, nil)
+	cStore := metadata.NewContainerStore(dbStore)
+
+	specObj := oci.Spec{
+		Linux: &oci.Linux{
+			CgroupsPath: "/default/container-1",
+		},
+		Process: &oci.Process{
+			Args: []string{"sleep", "10"},
+		},
+	}
+	specJSON, _ := json.Marshal(specObj)
+	anySpec := &types.Any{
+		TypeUrl: "types.containerd.io/opencontainers/runtime-spec/1/Spec",
+		Value:   specJSON,
+	}
+
+	c := containers.Container{
+		ID:          "container-1",
+		Image:       "ubuntu:latest",
+		Snapshotter: "overlayfs",
+		SnapshotKey: "snap1",
+		Runtime: containers.RuntimeInfo{
+			Name: "io.containerd.runc.v2",
+		},
+		Spec: anySpec,
+	}
+	_, err = cStore.Create(namespaces.WithNamespace(context.Background(), "ns1"), c)
+	if err != nil {
+		db.Close()
+		t.Fatalf("failed to create container: %v", err)
+	}
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		_ = createMetaSnapshot(tx, "ns1", "overlayfs", "snap1", "snapshot-name-1", "snapshot-name-parent", now)
+		return createMetaSnapshot(tx, "ns1", "overlayfs", "snapshot-name-parent", "snapshot-name-parent", "", now)
+	})
+	db.Close()
+
+	snapshotterDir := filepath.Join(containerdRoot, "io.containerd.snapshotter.v1.overlayfs")
+	_ = os.MkdirAll(snapshotterDir, 0755)
+	ssDBPath := filepath.Join(snapshotterDir, "metadata.db")
+	ssDB, err := bolt.Open(ssDBPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open snapshotter metadata.db: %v", err)
+	}
+	_ = ssDB.Update(func(tx *bolt.Tx) error {
+		_ = createOverlaySnapshot(tx, "snapshot-name-1", 42, 2, "snapshot-name-parent", 10240, now)
+		return createOverlaySnapshot(tx, "snapshot-name-parent", 41, 2, "", 10240, now)
+	})
+	ssDB.Close()
+
+	// Create directories on disk and put a drift file in the upperdir
+	upperDir := filepath.Join(snapshotterDir, "snapshots", "42", "fs")
+	_ = os.MkdirAll(upperDir, 0755)
+	_ = os.MkdirAll(filepath.Join(snapshotterDir, "snapshots", "42", "work"), 0755)
+	driftFile := filepath.Join(upperDir, "etc", "test.conf")
+	_ = os.MkdirAll(filepath.Dir(driftFile), 0755)
+	_ = os.WriteFile(driftFile, []byte("some config change"), 0600)
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer("", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	drifts, err := exp.ContainerDrift(namespaces.WithNamespace(context.Background(), "ns1"), "", false, "container-1")
+	if err != nil {
+		t.Fatalf("ContainerDrift failed: %v", err)
+	}
+
+	if len(drifts) != 1 {
+		t.Fatalf("expected 1 drift, got %d", len(drifts))
+	}
+
+	drift := drifts[0]
+	if drift.ContainerID != "container-1" {
+		t.Errorf("expected drift ContainerID 'container-1', got '%s'", drift.ContainerID)
+	}
+
+	if len(drift.AddedOrModified) != 1 {
+		t.Fatalf("expected 1 added/modified file, got %d", len(drift.AddedOrModified))
+	}
+
+	expectedPath := "/etc/test.conf"
+	if drift.AddedOrModified[0].FullPath != expectedPath {
+		t.Errorf("expected drift path '%s', got '%s'", expectedPath, drift.AddedOrModified[0].FullPath)
 	}
 }
