@@ -22,7 +22,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -81,11 +80,11 @@ func ExportContainerImage(ctx context.Context, containerID string, mountpoint st
 	log.Infof("successfully created container %s target image file %s", containerID, imageFilePath)
 
 	// 5. Format the image file as ext4
-	mkfsCmd := exec.CommandContext(ctx, "mkfs.ext4", "-F", "-q", imageFilePath)
-	mkfsOutput, err := mkfsCmd.CombinedOutput()
+	mkfsArgs := []string{"-F", "-q", imageFilePath}
+	mkfsOutput, err := Runner.Run(ctx, "mkfs.ext4", mkfsArgs...)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"command": mkfsCmd.String(),
+			"command": fmt.Sprintf("mkfs.ext4 %s", strings.Join(mkfsArgs, " ")),
 			"output":  string(mkfsOutput),
 			"error":   err,
 		}).Error("formatting target image")
@@ -110,32 +109,27 @@ func ExportContainerImage(ctx context.Context, containerID string, mountpoint st
 	defer func() {
 		if imageSuccessfullyMounted {
 			log.Infof("unmounting image from %s", imageMountDir)
-			umountCmd := exec.Command("umount", imageMountDir) // Use non-contextual command for cleanup
-			// Best effort unmount
-			if umountErr := umountCmd.Run(); umountErr == nil {
+			umountOutput, umountErr := Runner.RunWithoutContext("umount", imageMountDir)
+			if umountErr == nil {
 				unmounted = true
 				log.Infof("successfully unmounted image filesystem from %s", imageMountDir)
 			} else {
-				umountOutput, _ := umountCmd.CombinedOutput() // Get output for logging
 				log.Warnf("failed to unmount image filesystem from %s: %v; output: %s", imageMountDir, umountErr, string(umountOutput))
 				// Try lazy unmount
 				log.Infof("attempting lazy unmount from %s", imageMountDir)
-				lazyUmountCmd := exec.Command("umount", "-l", imageMountDir)
-				if lazyErr := lazyUmountCmd.Run(); lazyErr == nil {
+				lazyUmountOutput, lazyErr := Runner.RunWithoutContext("umount", "-l", imageMountDir)
+				if lazyErr == nil {
 					unmounted = true
 				} else {
-					lazyOutput, _ := lazyUmountCmd.CombinedOutput()
-					log.Warnf("lazy unmount also failed: %v; output: %s", lazyErr, string(lazyOutput))
+					log.Warnf("lazy unmount also failed: %v; output: %s", lazyErr, string(lazyUmountOutput))
 				}
 			}
 		}
 
 		if loopDevice != "" {
 			log.Infof("detaching loop device %s for image %s", loopDevice, imageFilePath)
-			losetupDetachCmd := exec.Command("losetup", "-d", loopDevice) // Use non-contextual command for cleanup
-			// Best effort detach
-			if detachErr := losetupDetachCmd.Run(); detachErr != nil {
-				detachOutput, _ := losetupDetachCmd.CombinedOutput() // Get output for logging
+			detachOutput, detachErr := Runner.RunWithoutContext("losetup", "-d", loopDevice)
+			if detachErr != nil {
 				log.Warnf("failed to detach loop device %s: %v; output: %s", loopDevice, detachErr, string(detachOutput))
 			} else {
 				log.Infof("successfully detached loop device %s", loopDevice)
@@ -155,10 +149,7 @@ func ExportContainerImage(ctx context.Context, containerID string, mountpoint st
 	// 6.1. Setup loop device
 	log.Infof("setting up loop device for %s", imageFilePath)
 	var stdoutBuf, stderrBuf bytes.Buffer
-	losetupCmd := exec.CommandContext(ctx, "losetup", "-f", "--show", imageFilePath)
-	losetupCmd.Stdout = &stdoutBuf
-	losetupCmd.Stderr = &stderrBuf
-	err = losetupCmd.Run()
+	err = Runner.RunSeparate(ctx, "losetup", []string{"-f", "--show", imageFilePath}, &stdoutBuf, &stderrBuf)
 	if err != nil {
 		log.Errorf("losetup -f --show %s failed: %v; stderr: %s", imageFilePath, err, stderrBuf.String())
 		return fmt.Errorf("losetup -f --show %s failed: %w. Output: %s", imageFilePath, err, stderrBuf.String())
@@ -172,8 +163,7 @@ func ExportContainerImage(ctx context.Context, containerID string, mountpoint st
 
 	// 6.2. Mount the loop device
 	log.Infof("mounting loop device %s to %s", loopDevice, imageMountDir)
-	mountImageCmd := exec.CommandContext(ctx, "mount", loopDevice, imageMountDir)
-	mountImageOutput, err := mountImageCmd.CombinedOutput()
+	mountImageOutput, err := Runner.Run(ctx, "mount", loopDevice, imageMountDir)
 	if err != nil {
 		log.Errorf("failed to mount %s to %s: %v; output: %s", loopDevice, imageMountDir, err, string(mountImageOutput))
 		return fmt.Errorf("failed to mount loop device %s to %s: %w. Output: %s", loopDevice, imageMountDir, err, string(mountImageOutput))
@@ -186,8 +176,7 @@ func ExportContainerImage(ctx context.Context, containerID string, mountpoint st
 	log.Infof("copying contents from %s to %s using 'cp -a'", mountpoint, imageMountDir)
 
 	//nolint:gosec // G204: Command arguments are constructed from verified mountpoints
-	copyCmd := exec.CommandContext(ctx, "cp", "-a", filepath.Join(mountpoint, "."), imageMountDir)
-	copyOutput, err := copyCmd.CombinedOutput()
+	copyOutput, err := Runner.Run(ctx, "cp", "-a", filepath.Join(mountpoint, "."), imageMountDir)
 	if err != nil {
 		log.Errorf("failed to copy data from %s to %s: %v; output: %s", mountpoint, imageMountDir, err, string(copyOutput))
 		return fmt.Errorf("failed to copy data from %s to %s: %w. Output: %s", mountpoint, imageMountDir, err, string(copyOutput))
@@ -196,9 +185,8 @@ func ExportContainerImage(ctx context.Context, containerID string, mountpoint st
 
 	// 6.4. Sync filesystem buffers to ensure all data is written to the image
 	log.Info("syncing filesystem buffers for the image")
-	syncCmd := exec.CommandContext(ctx, "sync", "-f", imageMountDir)
-	if syncErr := syncCmd.Run(); syncErr != nil {
-		syncOutput, _ := syncCmd.CombinedOutput() // Get output for logging
+	syncOutput, syncErr := Runner.Run(ctx, "sync", "-f", imageMountDir)
+	if syncErr != nil {
 		log.Warnf("sync command failed after copying to image: %v. Output: %s", syncErr, string(syncOutput))
 	} else {
 		log.Info("filesystem buffers synced")
@@ -233,18 +221,11 @@ func ExportContainerArchive(ctx context.Context, containerID string, mountpoint 
 		"archiveFilePath": archiveFilePath,
 	}).Debug("preparing to create container archive")
 
-	// Command: tar -czf <archiveFilePath> -C <mountpoint> .
-	// -c: create
-	// -z: gzip
-	// -f: file
-	// -C <dir>: change to directory <dir> before processing files
-	// .: process all files in the current directory (which is <mountpoint> due to -C)
-	tarCmd := exec.CommandContext(ctx, "tar", "-czf", archiveFilePath, "-C", mountpoint, ".")
-
-	tarOutput, err := tarCmd.CombinedOutput()
+	tarArgs := []string{"-czf", archiveFilePath, "-C", mountpoint, "."}
+	tarOutput, err := Runner.Run(ctx, "tar", tarArgs...)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"command": tarCmd.String(),
+			"command": fmt.Sprintf("tar %s", strings.Join(tarArgs, " ")),
 			"output":  string(tarOutput),
 			"error":   err,
 		}).Error("tar command failed")
