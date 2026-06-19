@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 
 	"github.com/containerd/containerd/namespaces"
 	"github.com/google/container-explorer/explorers"
@@ -108,8 +107,7 @@ func (e *explorer) ExportContainer(ctx context.Context, containerID string, outp
 		// Defer unmount and cleanup of the mountpoint
 		defer func() {
 			log.Infof("cleaning up mountpoint %s for container %s", mountpoint, targetContainer.ID)
-			unmountCmd := exec.Command("umount", mountpoint)
-			unmountCmdOutput, unmountErr := unmountCmd.CombinedOutput() // Run and get output/error
+			unmountCmdOutput, unmountErr := utils.Runner.RunWithoutContext("umount", mountpoint)
 			if unmountErr != nil {
 				log.Warnf("failed to unmount %s: %v; output: %s", mountpoint, unmountErr, string(unmountCmdOutput))
 			} else {

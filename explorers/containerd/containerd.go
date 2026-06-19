@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -685,8 +684,7 @@ func (e *explorer) MountContainer(ctx context.Context, containerID string, mount
 
 	log.Debug("container mount command ", mountArgs)
 
-	cmd := exec.Command("mount", mountArgs...)
-	out, err := cmd.CombinedOutput()
+	out, err := utils.Runner.RunWithoutContext("mount", mountArgs...)
 	if err != nil {
 		log.Errorf("running mount command: %v", err)
 
