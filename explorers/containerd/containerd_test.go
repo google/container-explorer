@@ -1182,3 +1182,155 @@ func TestContainerDrift(t *testing.T) {
 		t.Errorf("expected drift path '%s', got '%s'", expectedPath, drift.AddedOrModified[0].FullPath)
 	}
 }
+
+func TestListTasks(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		nsStore := metadata.NewNamespaceStore(tx)
+		return nsStore.Create(context.Background(), "ns1", nil)
+	})
+
+	dbStore := metadata.NewDB(db, nil, nil)
+	cStore := metadata.NewContainerStore(dbStore)
+
+	specObj := oci.Spec{
+		Linux: &oci.Linux{
+			CgroupsPath: "/default/container-1",
+		},
+		Process: &oci.Process{
+			Args: []string{"sleep", "10"},
+		},
+	}
+	specJSON, _ := json.Marshal(specObj)
+	anySpec := &types.Any{
+		TypeUrl: "types.containerd.io/opencontainers/runtime-spec/1/Spec",
+		Value:   specJSON,
+	}
+
+	c := containers.Container{
+		ID:          "container-1",
+		Image:       "ubuntu:latest",
+		Snapshotter: "overlayfs",
+		SnapshotKey: "snap1",
+		Runtime: containers.RuntimeInfo{
+			Name: "io.containerd.runc.v2",
+		},
+		Spec: anySpec,
+	}
+	_, err = cStore.Create(namespaces.WithNamespace(context.Background(), "ns1"), c)
+	if err != nil {
+		db.Close()
+		t.Fatalf("failed to create container: %v", err)
+	}
+	db.Close()
+
+	sc, _ := explorers.NewSupportContainer("")
+	// Set imageRoot to non-empty
+	exp, err := NewExplorer("some_image_root", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	tasks, err := exp.ListTasks(namespaces.WithNamespace(context.Background(), "ns1"))
+	if err != nil {
+		t.Fatalf("ListTasks failed: %v", err)
+	}
+
+	// Should return 1 task with UNKNOWN status and 0 PID because cgroups path doesn't exist
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Name != "container-1" {
+		t.Errorf("expected task name 'container-1', got '%s'", tasks[0].Name)
+	}
+	if tasks[0].Status != "UNKNOWN" {
+		t.Errorf("expected task status 'UNKNOWN', got '%s'", tasks[0].Status)
+	}
+}
+
+func TestGetContainerByID(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		nsStore := metadata.NewNamespaceStore(tx)
+		return nsStore.Create(context.Background(), "ns1", nil)
+	})
+
+	dbStore := metadata.NewDB(db, nil, nil)
+	cStore := metadata.NewContainerStore(dbStore)
+
+	specObj := oci.Spec{
+		Linux: &oci.Linux{
+			CgroupsPath: "/default/container-1",
+		},
+		Process: &oci.Process{
+			Args: []string{"sleep", "10"},
+		},
+	}
+	specJSON, _ := json.Marshal(specObj)
+	anySpec := &types.Any{
+		TypeUrl: "types.containerd.io/opencontainers/runtime-spec/1/Spec",
+		Value:   specJSON,
+	}
+
+	c := containers.Container{
+		ID:          "container-1",
+		Image:       "ubuntu:latest",
+		Snapshotter: "overlayfs",
+		SnapshotKey: "snap1",
+		Runtime: containers.RuntimeInfo{
+			Name: "io.containerd.runc.v2",
+		},
+		Spec: anySpec,
+	}
+	_, err = cStore.Create(namespaces.WithNamespace(context.Background(), "ns1"), c)
+	if err != nil {
+		db.Close()
+		t.Fatalf("failed to create container: %v", err)
+	}
+	db.Close()
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer("some_image_root", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	// Case 1: success path
+	ctr, err := exp.GetContainerByID(namespaces.WithNamespace(context.Background(), "ns1"), "container-1")
+	if err != nil {
+		t.Fatalf("GetContainerByID failed: %v", err)
+	}
+	if ctr.ID != "container-1" {
+		t.Errorf("expected container ID 'container-1', got '%s'", ctr.ID)
+	}
+
+	// Case 2: container not found
+	_, err = exp.GetContainerByID(namespaces.WithNamespace(context.Background(), "ns1"), "non-existent")
+	if err == nil {
+		t.Errorf("expected error for non-existent container ID, got nil")
+	}
+}
