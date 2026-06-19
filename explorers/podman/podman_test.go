@@ -783,3 +783,247 @@ func TestExportAllContainers(t *testing.T) {
 		t.Errorf("expected 'tar' to be executed")
 	}
 }
+
+func TestListContainers_MalformedMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+	createMockPasswd(t, tmpDir, []string{"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash"})
+	storageDir := filepath.Join(tmpDir, "home", "mockuser", ".local", "share", "containers", "storage")
+	_ = os.MkdirAll(storageDir, 0755)
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	configs := []containerConfig{
+		{
+			ID:       "container-1",
+			Metadata: "{malformed json",
+		},
+		{
+			ID:       "container-2",
+			Metadata: `{"image-name":"ubuntu","name":"valid-container"}`,
+		},
+	}
+	configsBytes, _ := json.Marshal(configs)
+	overlayContainersDir := filepath.Join(storageDir, "overlay-containers")
+	_ = os.MkdirAll(overlayContainersDir, 0755)
+	_ = os.WriteFile(filepath.Join(overlayContainersDir, "containers.json"), configsBytes, 0600)
+
+	ctrs, err := exp.ListContainers(context.Background())
+	if err != nil {
+		t.Fatalf("ListContainers failed: %v", err)
+	}
+
+	// Should skip container-1 and only return container-2
+	if len(ctrs) != 1 {
+		t.Errorf("expected 1 container, got %d", len(ctrs))
+	} else if ctrs[0].ID != "container-2" {
+		t.Errorf("expected container 'container-2', got '%s'", ctrs[0].ID)
+	}
+}
+
+func TestListImages_MalformedImagesJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	createMockPasswd(t, tmpDir, []string{"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash"})
+	storageDir := filepath.Join(tmpDir, "home", "mockuser", ".local", "share", "containers", "storage")
+	_ = os.MkdirAll(storageDir, 0755)
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	imagesDir := filepath.Join(storageDir, "overlay-images")
+	_ = os.MkdirAll(imagesDir, 0755)
+	_ = os.WriteFile(filepath.Join(imagesDir, "images.json"), []byte("{malformed json"), 0600)
+
+	imgs, err := exp.ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListImages failed: %v", err)
+	}
+	// Should log error and skip, returning empty list
+	if len(imgs) != 0 {
+		t.Errorf("expected 0 images, got %d", len(imgs))
+	}
+}
+
+func TestListImages_MissingOrMalformedManifest(t *testing.T) {
+	tmpDir := t.TempDir()
+	createMockPasswd(t, tmpDir, []string{"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash"})
+	storageDir := filepath.Join(tmpDir, "home", "mockuser", ".local", "share", "containers", "storage")
+	_ = os.MkdirAll(storageDir, 0755)
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	imagesDir := filepath.Join(storageDir, "overlay-images")
+	_ = os.MkdirAll(imagesDir, 0755)
+
+	imagesData := []containerImage{
+		{
+			ID:     "image-1",
+			Digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+			Names:  []string{"ubuntu:latest"},
+		},
+		{
+			ID:     "image-2",
+			Digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+			Names:  []string{"alpine:latest"},
+		},
+	}
+	imagesBytes, _ := json.Marshal(imagesData)
+	_ = os.WriteFile(filepath.Join(imagesDir, "images.json"), imagesBytes, 0600)
+
+	// image-1: missing manifest
+	// image-2: malformed manifest
+	image2ManifestDir := filepath.Join(imagesDir, "image-2")
+	_ = os.MkdirAll(image2ManifestDir, 0755)
+	_ = os.WriteFile(filepath.Join(image2ManifestDir, "manifest"), []byte("{malformed json"), 0600)
+
+	imgs, err := exp.ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListImages failed: %v", err)
+	}
+
+	// Should still return both images, but their media types will be empty
+	if len(imgs) != 2 {
+		t.Fatalf("expected 2 images, got %d", len(imgs))
+	}
+	for _, img := range imgs {
+		if img.Target.MediaType != "" {
+			t.Errorf("expected empty media type, got '%s'", img.Target.MediaType)
+		}
+	}
+}
+
+func TestListTasks_ErrorPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	createMockPasswd(t, tmpDir, []string{"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash"})
+	storageDir := filepath.Join(tmpDir, "home", "mockuser", ".local", "share", "containers", "storage")
+	_ = os.MkdirAll(storageDir, 0755)
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	dbFile := filepath.Join(storageDir, "db.sql")
+
+	// Case 1: Query failure (missing ContainerState table)
+	db, err := sql.Open("sqlite3", dbFile)
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	// Create some other table
+	_, _ = db.Exec("CREATE TABLE Dummy (ID TEXT)")
+	db.Close()
+
+	_, err = exp.ListTasks(context.Background())
+	if err == nil {
+		t.Errorf("ListTasks expected query error, got nil")
+	}
+
+	// Clean up db file
+	_ = os.Remove(dbFile)
+
+	// Case 2: Malformed JSON in ContainerState table
+	mockStates := map[string]string{
+		"container_1": `{malformed json`,
+	}
+	createMockSQLiteDB(t, dbFile, mockStates)
+
+	_, err = exp.ListTasks(context.Background())
+	if err == nil {
+		t.Errorf("ListTasks expected json parsing error, got nil")
+	}
+}
+
+func TestInfoContainer_ErrorPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	createMockPasswd(t, tmpDir, []string{"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash"})
+	storageDir := filepath.Join(tmpDir, "home", "mockuser", ".local", "share", "containers", "storage")
+	_ = os.MkdirAll(storageDir, 0755)
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	containerID := "c1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+	metadata := containerMetadata{
+		ImageName: "ubuntu:latest",
+		Name:      "my-ubuntu-container",
+	}
+	metadataBytes, _ := json.Marshal(metadata)
+
+	configs := []containerConfig{
+		{
+			ID:       containerID,
+			Names:    []string{"my-ubuntu-container"},
+			Metadata: string(metadataBytes),
+		},
+	}
+	configsBytes, _ := json.Marshal(configs)
+	overlayContainersDir := filepath.Join(storageDir, "overlay-containers")
+	_ = os.MkdirAll(overlayContainersDir, 0755)
+	_ = os.WriteFile(filepath.Join(overlayContainersDir, "containers.json"), configsBytes, 0600)
+
+	// Case 1: Missing spec file
+	_, err = exp.InfoContainer(context.Background(), containerID, true)
+	if err == nil {
+		t.Errorf("InfoContainer expected error for missing config.json, got nil")
+	}
+
+	// Case 2: Malformed spec JSON
+	cDir := filepath.Join(overlayContainersDir, containerID, "userdata")
+	_ = os.MkdirAll(cDir, 0755)
+	_ = os.WriteFile(filepath.Join(cDir, "config.json"), []byte("{malformed json"), 0600)
+
+	_, err = exp.InfoContainer(context.Background(), containerID, true)
+	if err == nil {
+		t.Errorf("InfoContainer expected error for malformed config.json, got nil")
+	}
+}
+
+func TestContainerDrift_MissingLink(t *testing.T) {
+	tmpDir := t.TempDir()
+	createMockPasswd(t, tmpDir, []string{"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash"})
+	storageDir := filepath.Join(tmpDir, "home", "mockuser", ".local", "share", "containers", "storage")
+	_ = os.MkdirAll(storageDir, 0755)
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	containerID := "c1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+	layerID := "layer-123"
+	configs := []containerConfig{
+		{
+			ID:    containerID,
+			Layer: layerID,
+		},
+	}
+	configsBytes, _ := json.Marshal(configs)
+	overlayContainersDir := filepath.Join(storageDir, "overlay-containers")
+	_ = os.MkdirAll(overlayContainersDir, 0755)
+	_ = os.WriteFile(filepath.Join(overlayContainersDir, "containers.json"), configsBytes, 0600)
+
+	// Setup overlay layer directory without the link file
+	overlayDir := filepath.Join(storageDir, "overlay")
+	layerDir := filepath.Join(overlayDir, layerID)
+	_ = os.MkdirAll(layerDir, 0755)
+
+	drifts, err := exp.ContainerDrift(context.Background(), "", false, containerID)
+	if err != nil {
+		t.Fatalf("ContainerDrift failed: %v", err)
+	}
+
+	// ContainerDrift should log warning and continue, returning empty list of drifts
+	if len(drifts) != 0 {
+		t.Errorf("expected 0 drifts, got %d", len(drifts))
+	}
+}

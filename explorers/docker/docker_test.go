@@ -728,3 +728,109 @@ func TestListTasks_ErrorCases(t *testing.T) {
 		t.Errorf("ListTasks expected error when config.v2.json has invalid JSON, got nil")
 	}
 }
+
+func TestListImages_MalformedRepositoriesJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	overlay2Dir := filepath.Join(dockerRoot, "image", "overlay2")
+	_ = os.MkdirAll(overlay2Dir, 0755)
+	_ = os.WriteFile(filepath.Join(overlay2Dir, "repositories.json"), []byte("{malformed json"), 0600)
+
+	imgs, err := exp.ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListImages failed: %v", err)
+	}
+	if len(imgs) != 0 {
+		t.Errorf("expected 0 images for malformed repositories.json, got %d", len(imgs))
+	}
+}
+
+func TestListImages_MalformedImageContentJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	overlay2Dir := filepath.Join(dockerRoot, "image", "overlay2")
+	_ = os.MkdirAll(overlay2Dir, 0755)
+
+	repoData := ImageRepository{
+		Repositories: map[string]ImageName{
+			"ubuntu": {
+				"ubuntu:latest": "sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			},
+		},
+	}
+	repoJSON, _ := json.Marshal(repoData)
+	_ = os.WriteFile(filepath.Join(overlay2Dir, "repositories.json"), repoJSON, 0600)
+
+	// Create malformed image content file
+	imageContentDir := filepath.Join(overlay2Dir, "imagedb", "content", "sha256")
+	_ = os.MkdirAll(imageContentDir, 0755)
+	imageIDFilename := "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+	_ = os.WriteFile(filepath.Join(imageContentDir, imageIDFilename), []byte("{malformed json"), 0600)
+
+	imgs, err := exp.ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListImages failed: %v", err)
+	}
+	// Malformed image content logs error and skips, but image is still listed with zero CreatedAt
+	if len(imgs) != 1 {
+		t.Errorf("expected 1 image, got %d", len(imgs))
+	} else if !imgs[0].CreatedAt.IsZero() {
+		t.Errorf("expected CreatedAt to be zero, got %v", imgs[0].CreatedAt)
+	}
+}
+
+func TestListImages_InvalidImageDigest(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	overlay2Dir := filepath.Join(dockerRoot, "image", "overlay2")
+	_ = os.MkdirAll(overlay2Dir, 0755)
+
+	// Digest without "sha256:" prefix or colon (so Split len is 1)
+	repoData := ImageRepository{
+		Repositories: map[string]ImageName{
+			"ubuntu": {
+				"ubuntu:latest": "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			},
+		},
+	}
+	repoJSON, _ := json.Marshal(repoData)
+	_ = os.WriteFile(filepath.Join(overlay2Dir, "repositories.json"), repoJSON, 0600)
+
+	imgs, err := exp.ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListImages failed: %v", err)
+	}
+	// Invalid digest splits log error and skip, but image is still listed with zero CreatedAt
+	if len(imgs) != 1 {
+		t.Errorf("expected 1 image, got %d", len(imgs))
+	} else if !imgs[0].CreatedAt.IsZero() {
+		t.Errorf("expected CreatedAt to be zero, got %v", imgs[0].CreatedAt)
+	}
+}
