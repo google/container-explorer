@@ -66,7 +66,20 @@ To compile or run Container Explorer, you need:
 - **Go** (version 1.25 or later is recommended)
 - **Linux operating system** (required for mount, export, and drift detection capabilities)
 
+Install the following packages if they're not already present on your system:
+
+- libbtrfs-dev
+- libgpgme-dev
+- pkg-config
+- build-essential
+
 ### Compiling from Source
+
+Make sure the following environment variable is set as the build uses C libraries:
+
+```bash
+export CGO_ENABLED=1
+```
 
 Clone the repository and build the binary:
 
