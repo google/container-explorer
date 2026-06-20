@@ -71,7 +71,7 @@ Install the following packages if they're not already present on your system:
 - libbtrfs-dev
 - libgpgme-dev
 - pkg-config
-- build-essentials
+- build-essential
 
 ### Compiling from Source
 
