@@ -663,9 +663,12 @@ func TestGetContainerByID(t *testing.T) {
 	}
 
 	// Case 2: Container not found
-	_, err = exp.GetContainerByID(context.Background(), "non_existent")
+	ctr, err = exp.GetContainerByID(context.Background(), "non_existent")
 	if err == nil {
 		t.Errorf("GetContainerByID expected error for non-existent container, got nil")
+	}
+	if ctr != nil {
+		t.Errorf("expected container to be nil on error, got %+v", ctr)
 	}
 }
 

@@ -1329,8 +1329,11 @@ func TestGetContainerByID(t *testing.T) {
 	}
 
 	// Case 2: container not found
-	_, err = exp.GetContainerByID(namespaces.WithNamespace(context.Background(), "ns1"), "non-existent")
+	ctr, err = exp.GetContainerByID(namespaces.WithNamespace(context.Background(), "ns1"), "non-existent")
 	if err == nil {
 		t.Errorf("expected error for non-existent container ID, got nil")
+	}
+	if ctr != nil {
+		t.Errorf("expected container to be nil on error, got %+v", ctr)
 	}
 }
