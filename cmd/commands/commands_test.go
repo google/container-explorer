@@ -464,3 +464,93 @@ func TestCLI_Export(t *testing.T) {
 		t.Errorf("expected 'tar' command to be executed")
 	}
 }
+
+func TestGetDockerDataRoot(t *testing.T) {
+	// Case 1: Config does not exist -> default
+	tmpDir := t.TempDir()
+	path := getDockerDataRoot(tmpDir)
+	if path != defaultDockerRootDir {
+		t.Errorf("expected default docker data root %q, got %q", defaultDockerRootDir, path)
+	}
+
+	// Case 2: Config exists but is invalid JSON
+	dockerConfigDir := filepath.Join(tmpDir, "etc", "docker")
+	_ = os.MkdirAll(dockerConfigDir, 0755)
+	_ = os.WriteFile(filepath.Join(dockerConfigDir, "daemon.json"), []byte("{invalid-json}"), 0600)
+	path = getDockerDataRoot(tmpDir)
+	if path != defaultDockerRootDir {
+		t.Errorf("expected default docker data root on invalid JSON, got %q", path)
+	}
+
+	// Case 3: Config exists, valid JSON, but missing data-root
+	_ = os.WriteFile(filepath.Join(dockerConfigDir, "daemon.json"), []byte(`{"debug": true}`), 0600)
+	path = getDockerDataRoot(tmpDir)
+	if path != defaultDockerRootDir {
+		t.Errorf("expected default docker data root on missing data-root, got %q", path)
+	}
+
+	// Case 4: Config exists, valid JSON, custom data-root
+	_ = os.WriteFile(filepath.Join(dockerConfigDir, "daemon.json"), []byte(`{"data-root": "/custom/docker/root"}`), 0600)
+	path = getDockerDataRoot(tmpDir)
+	if path != "/custom/docker/root" {
+		t.Errorf("expected custom docker data root '/custom/docker/root', got %q", path)
+	}
+}
+
+func TestGetContainerdDataDir(t *testing.T) {
+	// Case 1: Config does not exist -> default
+	tmpDir := t.TempDir()
+	path := getContainerdDataDir(tmpDir)
+	if path != defaultContainerdRootDir {
+		t.Errorf("expected default containerd root %q, got %q", defaultContainerdRootDir, path)
+	}
+
+	// Case 2: Config exists but parsing fails (invalid TOML)
+	containerdConfigDir := filepath.Join(tmpDir, "etc", "containerd")
+	_ = os.MkdirAll(containerdConfigDir, 0755)
+	_ = os.WriteFile(filepath.Join(containerdConfigDir, "config.toml"), []byte("invalid-toml"), 0600)
+	path = getContainerdDataDir(tmpDir)
+	if path != defaultContainerdRootDir {
+		t.Errorf("expected default containerd root on invalid TOML, got %q", path)
+	}
+
+	// Case 3: Config exists, valid TOML, but missing root
+	_ = os.WriteFile(filepath.Join(containerdConfigDir, "config.toml"), []byte(`version = 2`), 0600)
+	path = getContainerdDataDir(tmpDir)
+	if path != defaultContainerdRootDir {
+		t.Errorf("expected default containerd root on missing root key, got %q", path)
+	}
+
+	// Case 4: Config exists, valid TOML, custom root
+	_ = os.WriteFile(filepath.Join(containerdConfigDir, "config.toml"), []byte(`root = "/custom/containerd/root"`), 0600)
+	path = getContainerdDataDir(tmpDir)
+	if path != "/custom/containerd/root" {
+		t.Errorf("expected custom containerd root '/custom/containerd/root', got %q", path)
+	}
+}
+
+func TestGetFilterMap(t *testing.T) {
+	// Case 1: Empty filter
+	m := getFilterMap("")
+	if m != nil {
+		t.Errorf("expected nil filter map for empty string, got %v", m)
+	}
+
+	// Case 2: Valid single pair
+	m = getFilterMap("key=val")
+	if len(m) != 1 || m["key"] != "val" {
+		t.Errorf("expected {'key': 'val'}, got %v", m)
+	}
+
+	// Case 3: Valid multiple pairs with spaces
+	m = getFilterMap(" key1 = val1 , key2=val2 ")
+	if len(m) != 2 || m["key1"] != "val1" || m["key2"] != "val2" {
+		t.Errorf("expected {'key1': 'val1', 'key2': 'val2'}, got %v", m)
+	}
+
+	// Case 4: Malformed filters (ignored)
+	m = getFilterMap("key1,key2=val2,key3=")
+	if len(m) != 2 || m["key2"] != "val2" || m["key3"] != "" {
+		t.Errorf("expected {'key2': 'val2', 'key3': ''}, got %v", m)
+	}
+}
