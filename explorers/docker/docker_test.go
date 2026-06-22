@@ -1150,3 +1150,67 @@ func TestContainerDrift(t *testing.T) {
 		t.Errorf("expected drift path '%s', got '%s'", expectedPath, drift.AddedOrModified[0].FullPath)
 	}
 }
+
+func TestGetRepositories(t *testing.T) {
+	// Case 1: Missing image repository directory entirely
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	_ = os.MkdirAll(dockerRoot, 0755)
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.MkdirAll(containerdRoot, 0755)
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	_, err = exp.(*explorer).GetRepositories(context.Background())
+	if err == nil {
+		t.Errorf("expected error when image repository directory is missing, got nil")
+	}
+
+	// Case 2: Image repository directory exists, but no storage subdirectories
+	repositoriesDir := filepath.Join(dockerRoot, "image")
+	_ = os.MkdirAll(repositoriesDir, 0755)
+	repos, err := exp.(*explorer).GetRepositories(context.Background())
+	if err != nil {
+		t.Errorf("expected no error when image directory has no subdirs, got %v", err)
+	}
+	if repos != nil {
+		t.Errorf("expected nil repositories, got %v", repos)
+	}
+
+	// Case 3: Storage subdirectory exists, but repositories.json is missing
+	overlay2Dir := filepath.Join(repositoriesDir, "overlay2")
+	_ = os.MkdirAll(overlay2Dir, 0755)
+	_, err = exp.(*explorer).GetRepositories(context.Background())
+	if err == nil {
+		t.Errorf("expected error when repositories.json is missing, got nil")
+	}
+
+	// Case 4: repositories.json exists but is malformed
+	_ = os.WriteFile(filepath.Join(overlay2Dir, "repositories.json"), []byte("{malformed"), 0600)
+	_, err = exp.(*explorer).GetRepositories(context.Background())
+	if err == nil {
+		t.Errorf("expected error when repositories.json is malformed, got nil")
+	}
+
+	// Case 5: Success case
+	validJSON := `{
+		"Repositories": {
+			"nginx": {
+				"nginx:latest": "sha256:605c77e624ddb75e6110f997c58876baa13f8754486b461117934b24a9dc3a85",
+				"nginx@sha256:0d17b565c37bcbd895e9d92315a05c1c3c9a29f762b011a10c54a66cd53c9b31": "sha256:605c77e624ddb75e6110f997c58876baa13f8754486b461117934b24a9dc3a85"
+			}
+		}
+	}`
+	_ = os.WriteFile(filepath.Join(overlay2Dir, "repositories.json"), []byte(validJSON), 0600)
+	repos, err = exp.(*explorer).GetRepositories(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expectedDigest := "sha256:605c77e624ddb75e6110f997c58876baa13f8754486b461117934b24a9dc3a85"
+	if repos[expectedDigest] != "nginx:latest" {
+		t.Errorf("expected mapping %s -> 'nginx:latest', got '%s'", expectedDigest, repos[expectedDigest])
+	}
+}
