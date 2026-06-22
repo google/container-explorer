@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -480,8 +479,7 @@ func (e *explorer) mountDockerV2Container(_ context.Context, container ConfigFil
 	mountopts := fmt.Sprintf("ro,lowerdir=%s:%s", upperDir, lowerDir)
 	mountargs := []string{"-t", "overlay", "overlay", "-o", mountopts, mountpoint}
 
-	cmd := exec.Command("mount", mountargs...)
-	out, err := cmd.CombinedOutput()
+	out, err := utils.Runner.RunWithoutContext("mount", mountargs...)
 	if err != nil {
 		log.Errorf("running mount command: %v", mountargs)
 

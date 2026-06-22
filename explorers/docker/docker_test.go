@@ -19,12 +19,14 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/containerd/containerd/metadata"
+	"github.com/google/container-explorer/utils"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -661,9 +663,12 @@ func TestGetContainerByID(t *testing.T) {
 	}
 
 	// Case 2: Container not found
-	_, err = exp.GetContainerByID(context.Background(), "non_existent")
+	ctr, err = exp.GetContainerByID(context.Background(), "non_existent")
 	if err == nil {
 		t.Errorf("GetContainerByID expected error for non-existent container, got nil")
+	}
+	if ctr != nil {
+		t.Errorf("expected container to be nil on error, got %+v", ctr)
 	}
 }
 
@@ -726,5 +731,422 @@ func TestListTasks_ErrorCases(t *testing.T) {
 	_, err = exp.ListTasks(context.Background())
 	if err == nil {
 		t.Errorf("ListTasks expected error when config.v2.json has invalid JSON, got nil")
+	}
+}
+
+func TestListImages_MalformedRepositoriesJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	overlay2Dir := filepath.Join(dockerRoot, "image", "overlay2")
+	_ = os.MkdirAll(overlay2Dir, 0755)
+	_ = os.WriteFile(filepath.Join(overlay2Dir, "repositories.json"), []byte("{malformed json"), 0600)
+
+	imgs, err := exp.ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListImages failed: %v", err)
+	}
+	if len(imgs) != 0 {
+		t.Errorf("expected 0 images for malformed repositories.json, got %d", len(imgs))
+	}
+}
+
+func TestListImages_MalformedImageContentJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	overlay2Dir := filepath.Join(dockerRoot, "image", "overlay2")
+	_ = os.MkdirAll(overlay2Dir, 0755)
+
+	repoData := ImageRepository{
+		Repositories: map[string]ImageName{
+			"ubuntu": {
+				"ubuntu:latest": "sha256:abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			},
+		},
+	}
+	repoJSON, _ := json.Marshal(repoData)
+	_ = os.WriteFile(filepath.Join(overlay2Dir, "repositories.json"), repoJSON, 0600)
+
+	// Create malformed image content file
+	imageContentDir := filepath.Join(overlay2Dir, "imagedb", "content", "sha256")
+	_ = os.MkdirAll(imageContentDir, 0755)
+	imageIDFilename := "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+	_ = os.WriteFile(filepath.Join(imageContentDir, imageIDFilename), []byte("{malformed json"), 0600)
+
+	imgs, err := exp.ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListImages failed: %v", err)
+	}
+	// Malformed image content logs error and skips, but image is still listed with zero CreatedAt
+	if len(imgs) != 1 {
+		t.Errorf("expected 1 image, got %d", len(imgs))
+	} else if !imgs[0].CreatedAt.IsZero() {
+		t.Errorf("expected CreatedAt to be zero, got %v", imgs[0].CreatedAt)
+	}
+}
+
+func TestListImages_InvalidImageDigest(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	overlay2Dir := filepath.Join(dockerRoot, "image", "overlay2")
+	_ = os.MkdirAll(overlay2Dir, 0755)
+
+	// Digest without "sha256:" prefix or colon (so Split len is 1)
+	repoData := ImageRepository{
+		Repositories: map[string]ImageName{
+			"ubuntu": {
+				"ubuntu:latest": "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			},
+		},
+	}
+	repoJSON, _ := json.Marshal(repoData)
+	_ = os.WriteFile(filepath.Join(overlay2Dir, "repositories.json"), repoJSON, 0600)
+
+	imgs, err := exp.ListImages(context.Background())
+	if err != nil {
+		t.Fatalf("ListImages failed: %v", err)
+	}
+	// Invalid digest splits log error and skip, but image is still listed with zero CreatedAt
+	if len(imgs) != 1 {
+		t.Errorf("expected 1 image, got %d", len(imgs))
+	} else if !imgs[0].CreatedAt.IsZero() {
+		t.Errorf("expected CreatedAt to be zero, got %v", imgs[0].CreatedAt)
+	}
+}
+
+type mockCommandCall struct {
+	Name string
+	Args []string
+}
+
+type mockCommandResponse struct {
+	Output []byte
+	Stdout string
+	Stderr string
+	Err    error
+}
+
+type mockCommandRunner struct {
+	Calls     []mockCommandCall
+	Responses map[string]mockCommandResponse
+}
+
+func (m *mockCommandRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	m.Calls = append(m.Calls, mockCommandCall{Name: name, Args: args})
+	if r, ok := m.Responses[name]; ok {
+		return r.Output, r.Err
+	}
+	return nil, nil
+}
+
+func (m *mockCommandRunner) RunSeparate(_ context.Context, name string, args []string, stdout, stderr io.Writer) error {
+	m.Calls = append(m.Calls, mockCommandCall{Name: name, Args: args})
+	if r, ok := m.Responses[name]; ok {
+		if r.Stdout != "" {
+			_, _ = stdout.Write([]byte(r.Stdout))
+		}
+		if r.Stderr != "" {
+			_, _ = stderr.Write([]byte(r.Stderr))
+		}
+		return r.Err
+	}
+	return nil
+}
+
+func (m *mockCommandRunner) RunWithoutContext(name string, args ...string) ([]byte, error) {
+	m.Calls = append(m.Calls, mockCommandCall{Name: name, Args: args})
+	if r, ok := m.Responses[name]; ok {
+		return r.Output, r.Err
+	}
+	return nil, nil
+}
+
+func TestExportContainer(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	// Setup meta.db with namespaces because NewExplorer opens it and ExportContainer lists namespaces
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open bolt db: %v", err)
+	}
+	_ = db.Update(func(tx *bolt.Tx) error {
+		store := metadata.NewNamespaceStore(tx)
+		return store.Create(context.Background(), "ns1", nil)
+	})
+	db.Close()
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	cID := "container-1"
+	containersDir := filepath.Join(dockerRoot, "containers")
+	cDir := filepath.Join(containersDir, cID)
+	_ = os.MkdirAll(cDir, 0755)
+
+	dockerConfig := ConfigFile{
+		ID:     cID,
+		Name:   "/my-test-container",
+		Driver: "overlay2",
+		State: State{
+			Running: true,
+			Pid:     1234,
+		},
+	}
+	data, _ := json.Marshal(dockerConfig)
+	_ = os.WriteFile(filepath.Join(cDir, "config.v2.json"), data, 0600)
+
+	// Create overlay metadata files so MountContainer doesn't fail reading them
+	mountIDDir := filepath.Join(dockerRoot, "image", "overlay2", "layerdb", "mounts", cID)
+	_ = os.MkdirAll(mountIDDir, 0755)
+	_ = os.WriteFile(filepath.Join(mountIDDir, "mount-id"), []byte("mount-id-123"), 0600)
+
+	mountDir := filepath.Join(dockerRoot, "overlay2", "mount-id-123")
+	_ = os.MkdirAll(mountDir, 0755)
+	_ = os.WriteFile(filepath.Join(mountDir, "lower"), []byte("l/layer1"), 0600)
+	_ = os.WriteFile(filepath.Join(mountDir, "link"), []byte("link-xyz"), 0600)
+
+	// Override runner
+	origRunner := utils.Runner
+	mockRunner := &mockCommandRunner{
+		Responses: map[string]mockCommandResponse{
+			"losetup": {Stdout: "/dev/loop123\n", Err: nil},
+		},
+	}
+	utils.Runner = mockRunner
+	defer func() { utils.Runner = origRunner }()
+
+	outputDir := filepath.Join(tmpDir, "output")
+	exportOptions := map[string]bool{
+		"archive": true,
+		"image":   true,
+	}
+	err = exp.ExportContainer(context.Background(), cID, outputDir, exportOptions)
+	if err != nil {
+		t.Fatalf("ExportContainer failed: %v", err)
+	}
+
+	// Verify command calls
+	callNames := make([]string, len(mockRunner.Calls))
+	for i, c := range mockRunner.Calls {
+		callNames[i] = c.Name
+	}
+	t.Logf("mockRunner calls: %v", callNames)
+
+	hasMount := false
+	hasUmount := false
+	hasTar := false
+	for _, name := range callNames {
+		if name == "mount" {
+			hasMount = true
+		}
+		if name == "umount" {
+			hasUmount = true
+		}
+		if name == "tar" {
+			hasTar = true
+		}
+	}
+
+	if !hasMount {
+		t.Errorf("expected 'mount' to be executed")
+	}
+	if !hasUmount {
+		t.Errorf("expected 'umount' to be executed")
+	}
+	if !hasTar {
+		t.Errorf("expected 'tar' to be executed")
+	}
+}
+
+func TestExportAllContainers(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open bolt db: %v", err)
+	}
+	_ = db.Update(func(tx *bolt.Tx) error {
+		store := metadata.NewNamespaceStore(tx)
+		return store.Create(context.Background(), "ns1", nil)
+	})
+	db.Close()
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	cID := "container-1"
+	containersDir := filepath.Join(dockerRoot, "containers")
+	cDir := filepath.Join(containersDir, cID)
+	_ = os.MkdirAll(cDir, 0755)
+
+	dockerConfig := ConfigFile{
+		ID:     cID,
+		Name:   "/my-test-container",
+		Driver: "overlay2",
+	}
+	data, _ := json.Marshal(dockerConfig)
+	_ = os.WriteFile(filepath.Join(cDir, "config.v2.json"), data, 0600)
+
+	// Create overlay metadata files so MountContainer doesn't fail reading them
+	mountIDDir := filepath.Join(dockerRoot, "image", "overlay2", "layerdb", "mounts", cID)
+	_ = os.MkdirAll(mountIDDir, 0755)
+	_ = os.WriteFile(filepath.Join(mountIDDir, "mount-id"), []byte("mount-id-123"), 0600)
+
+	mountDir := filepath.Join(dockerRoot, "overlay2", "mount-id-123")
+	_ = os.MkdirAll(mountDir, 0755)
+	_ = os.WriteFile(filepath.Join(mountDir, "lower"), []byte("l/layer1"), 0600)
+	_ = os.WriteFile(filepath.Join(mountDir, "link"), []byte("link-xyz"), 0600)
+
+	// Override runner
+	origRunner := utils.Runner
+	mockRunner := &mockCommandRunner{
+		Responses: map[string]mockCommandResponse{
+			"losetup": {Stdout: "/dev/loop123\n", Err: nil},
+		},
+	}
+	utils.Runner = mockRunner
+	defer func() { utils.Runner = origRunner }()
+
+	outputDir := filepath.Join(tmpDir, "output")
+	exportOptions := map[string]bool{
+		"archive": true,
+	}
+
+	err = exp.ExportAllContainers(context.Background(), outputDir, exportOptions, nil, false)
+	if err != nil {
+		t.Fatalf("ExportAllContainers failed: %v", err)
+	}
+
+	exportedArchive := filepath.Join(outputDir, cID+".tar.gz")
+	hasTar := false
+	for _, c := range mockRunner.Calls {
+		if c.Name == "tar" {
+			hasTar = true
+			foundOut := false
+			for _, arg := range c.Args {
+				if arg == exportedArchive {
+					foundOut = true
+				}
+			}
+			if !foundOut {
+				t.Errorf("expected tar command to export to '%s', args were: %v", exportedArchive, c.Args)
+			}
+		}
+	}
+	if !hasTar {
+		t.Errorf("expected 'tar' to be executed")
+	}
+}
+
+func TestContainerDrift(t *testing.T) {
+	tmpDir := t.TempDir()
+	dockerRoot := filepath.Join(tmpDir, "docker_root")
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(dockerRoot, 0755)
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	exp, err := NewExplorer("", containerdRoot, dockerRoot)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	cID := "container-1"
+	containersDir := filepath.Join(dockerRoot, "containers")
+	cDir := filepath.Join(containersDir, cID)
+	_ = os.MkdirAll(cDir, 0755)
+
+	dockerConfig := ConfigFile{
+		ID:     cID,
+		Name:   "/my-test-container",
+		Driver: "overlay2",
+	}
+	data, _ := json.Marshal(dockerConfig)
+	_ = os.WriteFile(filepath.Join(cDir, "config.v2.json"), data, 0600)
+
+	// Create mount-id file: imageDirName/container.Driver/layerdb/mounts/containerID/mount-id
+	// Resolves to: dockerRoot/image/overlay2/layerdb/mounts/container-1/mount-id
+	mountIDDir := filepath.Join(dockerRoot, "image", "overlay2", "layerdb", "mounts", cID)
+	_ = os.MkdirAll(mountIDDir, 0755)
+	_ = os.WriteFile(filepath.Join(mountIDDir, "mount-id"), []byte("mount-id-123"), 0600)
+
+	// Create link file: dockerRoot/overlay2/mount-id-123/link
+	mountDir := filepath.Join(dockerRoot, "overlay2", "mount-id-123")
+	_ = os.MkdirAll(mountDir, 0755)
+	_ = os.WriteFile(filepath.Join(mountDir, "link"), []byte("link-xyz"), 0600)
+
+	// Create upperdir: dockerRoot/overlay2/l/link-xyz
+	upperDir := filepath.Join(dockerRoot, "overlay2", "l", "link-xyz")
+	_ = os.MkdirAll(upperDir, 0755)
+
+	// Create a drift file in upperdir
+	driftFile := filepath.Join(upperDir, "etc", "test.conf")
+	_ = os.MkdirAll(filepath.Dir(driftFile), 0755)
+	_ = os.WriteFile(driftFile, []byte("some config change"), 0600)
+
+	drifts, err := exp.ContainerDrift(context.Background(), "", false, cID)
+	if err != nil {
+		t.Fatalf("ContainerDrift failed: %v", err)
+	}
+
+	if len(drifts) != 1 {
+		t.Fatalf("expected 1 drift, got %d", len(drifts))
+	}
+
+	drift := drifts[0]
+	if drift.ContainerID != cID {
+		t.Errorf("expected drift ContainerID '%s', got '%s'", cID, drift.ContainerID)
+	}
+
+	if len(drift.AddedOrModified) != 1 {
+		t.Fatalf("expected 1 added/modified file, got %d", len(drift.AddedOrModified))
+	}
+
+	expectedPath := "/etc/test.conf"
+	if drift.AddedOrModified[0].FullPath != expectedPath {
+		t.Errorf("expected drift path '%s', got '%s'", expectedPath, drift.AddedOrModified[0].FullPath)
 	}
 }

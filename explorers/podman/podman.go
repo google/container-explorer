@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -651,8 +650,7 @@ func (e *explorer) mountContainer(_ context.Context, podmanRootDir string, conta
 	mountOpt := fmt.Sprintf("ro,lowerdir=%s:%s", upperDir, lowerDir)
 	mountArgs := []string{"-t", "overlay", "overlay", "-o", mountOpt, mountpoint}
 
-	cmd := exec.Command("mount", mountArgs...)
-	out, err := cmd.CombinedOutput()
+	out, err := utils.Runner.RunWithoutContext("mount", mountArgs...)
 	if err != nil {
 		log.Infof("mount command: mount %s", strings.Join(mountArgs, " "))
 		if string(out) != "" {
