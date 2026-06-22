@@ -1337,3 +1337,116 @@ func TestGetContainerByID(t *testing.T) {
 		t.Errorf("expected container to be nil on error, got %+v", ctr)
 	}
 }
+
+func TestResolveSnapshotter(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.MkdirAll(filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt"), 0755)
+
+	dbPath := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt", "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	now := time.Now()
+	// Populate snapshot metadata in database
+	_ = db.Update(func(tx *bolt.Tx) error {
+		_ = createMetaSnapshot(tx, "ns-resolve", "overlayfs", "snap-resolved-key", "snapshot-actual-name", "snapshot-parent-name", now)
+		_ = createMetaSnapshot(tx, "ns-resolve", "native", "native-snap-key", "native-snapshot-actual-name", "", now)
+		return nil
+	})
+	db.Close()
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer("some_image_root", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	ctx := namespaces.WithNamespace(context.Background(), "ns-resolve")
+
+	// Case 1: Snapshotter and key are already populated -> returns immediately
+	c1 := containers.Container{
+		ID:          "container-1",
+		Snapshotter: "some-snapshotter",
+		SnapshotKey: "some-key",
+	}
+	err = exp.(*explorer).resolveSnapshotter(ctx, &c1)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if c1.Snapshotter != "some-snapshotter" || c1.SnapshotKey != "some-key" {
+		t.Errorf("expected no changes, got Snapshotter=%q, SnapshotKey=%q", c1.Snapshotter, c1.SnapshotKey)
+	}
+
+	// Case 2: Snapshotter is empty, SnapshotKey is provided -> finds matching snapshotter
+	c2 := containers.Container{
+		ID:          "container-2",
+		Snapshotter: "",
+		SnapshotKey: "snap-resolved-key",
+	}
+	err = exp.(*explorer).resolveSnapshotter(ctx, &c2)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if c2.Snapshotter != "overlayfs" {
+		t.Errorf("expected Snapshotter to be resolved to 'overlayfs', got %q", c2.Snapshotter)
+	}
+	exp.Close() // Close explorer here so we can write to bolt DB below without blocking
+
+	// Case 3: Snapshotter is empty, SnapshotKey is empty -> walks and matches by container.ID
+	db, _ = bolt.Open(dbPath, 0644, nil)
+	_ = db.Update(func(tx *bolt.Tx) error {
+		return createMetaSnapshot(tx, "ns-resolve", "overlayfs", "container-3-key-pattern", "snap-name", "", now)
+	})
+	db.Close()
+
+	// Recreate explorer
+	exp, err = NewExplorer("some_image_root", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to recreate explorer: %v", err)
+	}
+	defer exp.Close()
+
+	c3 := containers.Container{
+		ID:          "container-3",
+		Snapshotter: "",
+		SnapshotKey: "",
+	}
+	err = exp.(*explorer).resolveSnapshotter(ctx, &c3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if c3.Snapshotter != "overlayfs" || c3.SnapshotKey != "container-3-key-pattern" {
+		t.Errorf("expected Snapshotter='overlayfs' and SnapshotKey='container-3-key-pattern', got Snapshotter=%q, SnapshotKey=%q", c3.Snapshotter, c3.SnapshotKey)
+	}
+
+	// Case 4: No match -> fallback to overlayfs and container.ID
+	c4 := containers.Container{
+		ID:          "container-4",
+		Snapshotter: "",
+		SnapshotKey: "",
+	}
+	err = exp.(*explorer).resolveSnapshotter(ctx, &c4)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if c4.Snapshotter != "overlayfs" || c4.SnapshotKey != "container-4" {
+		t.Errorf("expected fallback to Snapshotter='overlayfs' and SnapshotKey='container-4', got Snapshotter=%q, SnapshotKey=%q", c4.Snapshotter, c4.SnapshotKey)
+	}
+
+	// Case 5: Missing namespace -> fallback to default and returns error
+	c5 := containers.Container{
+		ID:          "container-5",
+		Snapshotter: "",
+		SnapshotKey: "",
+	}
+	err = exp.(*explorer).resolveSnapshotter(context.Background(), &c5)
+	if err == nil {
+		t.Errorf("expected error when namespace is missing from context")
+	}
+	if c5.Snapshotter != "overlayfs" || c5.SnapshotKey != "container-5" {
+		t.Errorf("expected fallback on error, got Snapshotter=%q, SnapshotKey=%q", c5.Snapshotter, c5.SnapshotKey)
+	}
+}
