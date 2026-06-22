@@ -1544,3 +1544,78 @@ func TestResolveSnapshotter(t *testing.T) {
 		t.Errorf("expected fallback on error, got Snapshotter=%q, SnapshotKey=%q", c5.Snapshotter, c5.SnapshotKey)
 	}
 }
+
+func TestGetContainerState(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	db, err := bolt.Open(filepath.Join(metaDir, "meta.db"), 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to create meta.db: %v", err)
+	}
+	db.Close()
+
+	imageRoot := filepath.Join(tmpDir, "image_root")
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer(imageRoot, containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	ctr := explorers.Container{
+		Container: containers.Container{
+			ID: "container-state-test",
+		},
+		Namespace: "ns-state",
+	}
+
+	// Case 1: State directory does not exist -> error
+	_, err = exp.(*explorer).GetContainerState(context.Background(), ctr)
+	if err == nil {
+		t.Errorf("expected error when state directory is missing, got nil")
+	}
+
+	// Case 2: State directory exists, but state.json is missing -> error
+	stateDir := filepath.Join(imageRoot, "run", "containerd", "runc", "ns-state", "container-state-test")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatalf("failed to create state dir: %v", err)
+	}
+
+	_, err = exp.(*explorer).GetContainerState(context.Background(), ctr)
+	if err == nil {
+		t.Errorf("expected error when state.json is missing, got nil")
+	}
+
+	// Case 3: state.json is invalid JSON -> error
+	stateFile := filepath.Join(stateDir, "state.json")
+	if err := os.WriteFile(stateFile, []byte("{invalid-json"), 0600); err != nil {
+		t.Fatalf("failed to write state.json: %v", err)
+	}
+	_, err = exp.(*explorer).GetContainerState(context.Background(), ctr)
+	if err == nil {
+		t.Errorf("expected error when state.json is invalid JSON, got nil")
+	}
+
+	// Case 4: Success path
+	validJSON := `{
+		"init_process_pid": 54321,
+		"rootless": true
+	}`
+	if err := os.WriteFile(stateFile, []byte(validJSON), 0600); err != nil {
+		t.Fatalf("failed to write valid state.json: %v", err)
+	}
+
+	state, err := exp.(*explorer).GetContainerState(context.Background(), ctr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.InitProcessPid != 54321 {
+		t.Errorf("expected init_process_pid to be 54321, got %d", state.InitProcessPid)
+	}
+	if !state.Rootless {
+		t.Errorf("expected rootless to be true, got false")
+	}
+}
