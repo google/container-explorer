@@ -1260,6 +1260,100 @@ func TestListTasks(t *testing.T) {
 	}
 }
 
+func TestListTasks_WithCgroups(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		nsStore := metadata.NewNamespaceStore(tx)
+		return nsStore.Create(context.Background(), "ns1", nil)
+	})
+
+	dbStore := metadata.NewDB(db, nil, nil)
+	cStore := metadata.NewContainerStore(dbStore)
+
+	specObj := oci.Spec{
+		Linux: &oci.Linux{
+			CgroupsPath: "/default/container-1",
+		},
+		Process: &oci.Process{
+			Args: []string{"sleep", "10"},
+		},
+	}
+	specJSON, _ := json.Marshal(specObj)
+	anySpec := &types.Any{
+		TypeUrl: "types.containerd.io/opencontainers/runtime-spec/1/Spec",
+		Value:   specJSON,
+	}
+
+	c := containers.Container{
+		ID:          "container-1",
+		Image:       "ubuntu:latest",
+		Snapshotter: "overlayfs",
+		SnapshotKey: "snap1",
+		Runtime: containers.RuntimeInfo{
+			Name: "io.containerd.runc.v2",
+		},
+		Spec: anySpec,
+	}
+	_, err = cStore.Create(namespaces.WithNamespace(context.Background(), "ns1"), c)
+	if err != nil {
+		db.Close()
+		t.Fatalf("failed to create container: %v", err)
+	}
+	db.Close()
+
+	// Setup fake cgroups filesystem
+	imageRoot := filepath.Join(tmpDir, "image_root")
+	cgroupPath := filepath.Join(imageRoot, "sys", "fs", "cgroup", "default", "container-1")
+	if err := os.MkdirAll(cgroupPath, 0755); err != nil {
+		t.Fatalf("failed to create fake cgroup path: %v", err)
+	}
+
+	// Write cgroup.events (RUNNING state)
+	if err := os.WriteFile(filepath.Join(cgroupPath, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0600); err != nil {
+		t.Fatalf("failed to write cgroup.events: %v", err)
+	}
+	// Write cgroup.procs
+	if err := os.WriteFile(filepath.Join(cgroupPath, "cgroup.procs"), []byte("12345\n"), 0600); err != nil {
+		t.Fatalf("failed to write cgroup.procs: %v", err)
+	}
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer(imageRoot, containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	tasks, err := exp.ListTasks(namespaces.WithNamespace(context.Background(), "ns1"))
+	if err != nil {
+		t.Fatalf("ListTasks failed: %v", err)
+	}
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Name != "container-1" {
+		t.Errorf("expected task name 'container-1', got '%s'", tasks[0].Name)
+	}
+	if tasks[0].Status != "RUNNING" {
+		t.Errorf("expected task status 'RUNNING', got '%s'", tasks[0].Status)
+	}
+	if tasks[0].PID != 12345 {
+		t.Errorf("expected task PID 12345, got %d", tasks[0].PID)
+	}
+}
+
 func TestGetContainerByID(t *testing.T) {
 	tmpDir := t.TempDir()
 	containerdRoot := filepath.Join(tmpDir, "containerd_root")
