@@ -232,6 +232,17 @@ func TestExportContainerImage_LosetupFailure(t *testing.T) {
 	}
 }
 
+func TestExportContainerImage_CalculateDirectorySizeFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputDir := filepath.Join(tmpDir, "output")
+
+	// Call with non-existent mountpoint
+	err := ExportContainerImage(context.Background(), "ctr1", filepath.Join(tmpDir, "non_existent_mount"), outputDir)
+	if err == nil {
+		t.Error("ExportContainerImage expected error for non-existent mountpoint, got nil")
+	}
+}
+
 func TestExportContainerArchive_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	mountpoint := filepath.Join(tmpDir, "container_mount")

@@ -202,3 +202,36 @@ func TestScanDiffDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestScanDiffDirectory_UnreadableDirectory(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	unreadableDir := filepath.Join(tmpDir, "unreadable_dir")
+	if err := os.Mkdir(unreadableDir, 0750); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	// Change permission to make it unreadable
+	if err := os.Chmod(unreadableDir, 0000); err != nil {
+		t.Fatalf("failed to chmod directory: %v", err)
+	}
+	defer func() {
+		_ = os.Chmod(unreadableDir, 0750) // Restore permission for cleanup
+	}()
+
+	_, inaccessibleFiles, err := ScanDiffDirectory(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanDiffDirectory failed: %v", err)
+	}
+
+	// The unreadable directory itself should be returned as inaccessible
+	if len(inaccessibleFiles) != 1 {
+		t.Fatalf("expected 1 inaccessible file, got %d", len(inaccessibleFiles))
+	}
+
+	expectedPath := "/unreadable_dir"
+	if inaccessibleFiles[0].FullPath != expectedPath {
+		t.Errorf("expected inaccessible full path %q, got %q", expectedPath, inaccessibleFiles[0].FullPath)
+	}
+}

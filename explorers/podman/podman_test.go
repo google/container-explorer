@@ -118,6 +118,127 @@ func TestNewExplorer_SuccessRootless(t *testing.T) {
 	}
 }
 
+func TestNewExplorer_SuccessRootless_WithStorageConfGraphRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	createMockPasswd(t, tmpDir, []string{
+		"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash",
+	})
+
+	// Create custom graphroot directory on disk
+	customGraphRoot := filepath.Join(tmpDir, "custom", "containers", "storage")
+	if err := os.MkdirAll(customGraphRoot, 0755); err != nil {
+		t.Fatalf("failed to create custom graphroot: %v", err)
+	}
+
+	// Create storage.conf pointing to custom graphroot
+	userConfigDir := filepath.Join(tmpDir, "home", "mockuser", ".config", "containers")
+	if err := os.MkdirAll(userConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create user config dir: %v", err)
+	}
+	storageConf := `
+[storage]
+graphroot = "/custom/containers/storage"
+`
+	if err := os.WriteFile(filepath.Join(userConfigDir, "storage.conf"), []byte(storageConf), 0600); err != nil {
+		t.Fatalf("failed to write storage.conf: %v", err)
+	}
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	pDirs := exp.(*explorer).podmanRootDirs
+	if len(pDirs) != 1 {
+		t.Fatalf("expected 1 podman root directory, got %d: %v", len(pDirs), pDirs)
+	}
+
+	expectedDir := filepath.Join(tmpDir, "custom", "containers")
+	if pDirs[0] != expectedDir {
+		t.Errorf("expected podman root dir '%s', got '%s'", expectedDir, pDirs[0])
+	}
+}
+
+func TestNewExplorer_SuccessRootless_WithStorageConfRootlessStoragePath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	createMockPasswd(t, tmpDir, []string{
+		"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash",
+	})
+
+	// Create custom rootless storage path on disk
+	customRootlessPath := filepath.Join(tmpDir, "custom_rootless", "containers", "storage")
+	if err := os.MkdirAll(customRootlessPath, 0755); err != nil {
+		t.Fatalf("failed to create custom rootless path: %v", err)
+	}
+
+	// Create storage.conf pointing to custom rootless storage path
+	userConfigDir := filepath.Join(tmpDir, "home", "mockuser", ".config", "containers")
+	if err := os.MkdirAll(userConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create user config dir: %v", err)
+	}
+	storageConf := `
+[storage]
+rootless_storage_path = "/custom_rootless/containers/storage"
+`
+	if err := os.WriteFile(filepath.Join(userConfigDir, "storage.conf"), []byte(storageConf), 0600); err != nil {
+		t.Fatalf("failed to write storage.conf: %v", err)
+	}
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	pDirs := exp.(*explorer).podmanRootDirs
+	if len(pDirs) != 1 {
+		t.Fatalf("expected 1 podman root directory, got %d: %v", len(pDirs), pDirs)
+	}
+
+	expectedDir := filepath.Join(tmpDir, "custom_rootless", "containers")
+	if pDirs[0] != expectedDir {
+		t.Errorf("expected podman root dir '%s', got '%s'", expectedDir, pDirs[0])
+	}
+}
+
+func TestNewExplorer_SuccessRootless_WithStorageConfMalformed(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	createMockPasswd(t, tmpDir, []string{
+		"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash",
+	})
+
+	// Malformed config, should fallback to default graphroot
+	defaultGraphRoot := filepath.Join(tmpDir, "home", "mockuser", ".local", "share", "containers", "storage")
+	if err := os.MkdirAll(defaultGraphRoot, 0755); err != nil {
+		t.Fatalf("failed to create default graphroot: %v", err)
+	}
+
+	userConfigDir := filepath.Join(tmpDir, "home", "mockuser", ".config", "containers")
+	if err := os.MkdirAll(userConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create user config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(userConfigDir, "storage.conf"), []byte("invalid-toml-here"), 0600); err != nil {
+		t.Fatalf("failed to write storage.conf: %v", err)
+	}
+
+	exp, err := NewExplorer(tmpDir)
+	if err != nil {
+		t.Fatalf("NewExplorer failed: %v", err)
+	}
+
+	pDirs := exp.(*explorer).podmanRootDirs
+	if len(pDirs) != 1 {
+		t.Fatalf("expected 1 podman root directory, got %d: %v", len(pDirs), pDirs)
+	}
+
+	expectedDir := filepath.Join(tmpDir, "home", "mockuser", ".local", "share", "containers")
+	if pDirs[0] != expectedDir {
+		t.Errorf("expected podman root dir '%s', got '%s'", expectedDir, pDirs[0])
+	}
+}
+
 func TestListNamespacesAndSnapshots(t *testing.T) {
 	// These are not implemented/supported in Podman, verify they return nil, nil
 	tmpDir := t.TempDir()

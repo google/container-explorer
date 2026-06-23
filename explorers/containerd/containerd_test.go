@@ -1260,6 +1260,100 @@ func TestListTasks(t *testing.T) {
 	}
 }
 
+func TestListTasks_WithCgroups(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.Mkdir(containerdRoot, 0755)
+
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	dbPath := filepath.Join(metaDir, "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	_ = db.Update(func(tx *bolt.Tx) error {
+		nsStore := metadata.NewNamespaceStore(tx)
+		return nsStore.Create(context.Background(), "ns1", nil)
+	})
+
+	dbStore := metadata.NewDB(db, nil, nil)
+	cStore := metadata.NewContainerStore(dbStore)
+
+	specObj := oci.Spec{
+		Linux: &oci.Linux{
+			CgroupsPath: "/default/container-1",
+		},
+		Process: &oci.Process{
+			Args: []string{"sleep", "10"},
+		},
+	}
+	specJSON, _ := json.Marshal(specObj)
+	anySpec := &types.Any{
+		TypeUrl: "types.containerd.io/opencontainers/runtime-spec/1/Spec",
+		Value:   specJSON,
+	}
+
+	c := containers.Container{
+		ID:          "container-1",
+		Image:       "ubuntu:latest",
+		Snapshotter: "overlayfs",
+		SnapshotKey: "snap1",
+		Runtime: containers.RuntimeInfo{
+			Name: "io.containerd.runc.v2",
+		},
+		Spec: anySpec,
+	}
+	_, err = cStore.Create(namespaces.WithNamespace(context.Background(), "ns1"), c)
+	if err != nil {
+		db.Close()
+		t.Fatalf("failed to create container: %v", err)
+	}
+	db.Close()
+
+	// Setup fake cgroups filesystem
+	imageRoot := filepath.Join(tmpDir, "image_root")
+	cgroupPath := filepath.Join(imageRoot, "sys", "fs", "cgroup", "default", "container-1")
+	if err := os.MkdirAll(cgroupPath, 0755); err != nil {
+		t.Fatalf("failed to create fake cgroup path: %v", err)
+	}
+
+	// Write cgroup.events (RUNNING state)
+	if err := os.WriteFile(filepath.Join(cgroupPath, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0600); err != nil {
+		t.Fatalf("failed to write cgroup.events: %v", err)
+	}
+	// Write cgroup.procs
+	if err := os.WriteFile(filepath.Join(cgroupPath, "cgroup.procs"), []byte("12345\n"), 0600); err != nil {
+		t.Fatalf("failed to write cgroup.procs: %v", err)
+	}
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer(imageRoot, containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	tasks, err := exp.ListTasks(namespaces.WithNamespace(context.Background(), "ns1"))
+	if err != nil {
+		t.Fatalf("ListTasks failed: %v", err)
+	}
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Name != "container-1" {
+		t.Errorf("expected task name 'container-1', got '%s'", tasks[0].Name)
+	}
+	if tasks[0].Status != "RUNNING" {
+		t.Errorf("expected task status 'RUNNING', got '%s'", tasks[0].Status)
+	}
+	if tasks[0].PID != 12345 {
+		t.Errorf("expected task PID 12345, got %d", tasks[0].PID)
+	}
+}
+
 func TestGetContainerByID(t *testing.T) {
 	tmpDir := t.TempDir()
 	containerdRoot := filepath.Join(tmpDir, "containerd_root")
@@ -1335,5 +1429,193 @@ func TestGetContainerByID(t *testing.T) {
 	}
 	if ctr != nil {
 		t.Errorf("expected container to be nil on error, got %+v", ctr)
+	}
+}
+
+func TestResolveSnapshotter(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	_ = os.MkdirAll(filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt"), 0755)
+
+	dbPath := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt", "meta.db")
+	db, err := bolt.Open(dbPath, 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to open meta.db: %v", err)
+	}
+
+	now := time.Now()
+	// Populate snapshot metadata in database
+	_ = db.Update(func(tx *bolt.Tx) error {
+		_ = createMetaSnapshot(tx, "ns-resolve", "overlayfs", "snap-resolved-key", "snapshot-actual-name", "snapshot-parent-name", now)
+		_ = createMetaSnapshot(tx, "ns-resolve", "native", "native-snap-key", "native-snapshot-actual-name", "", now)
+		return nil
+	})
+	db.Close()
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer("some_image_root", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+
+	ctx := namespaces.WithNamespace(context.Background(), "ns-resolve")
+
+	// Case 1: Snapshotter and key are already populated -> returns immediately
+	c1 := containers.Container{
+		ID:          "container-1",
+		Snapshotter: "some-snapshotter",
+		SnapshotKey: "some-key",
+	}
+	err = exp.(*explorer).resolveSnapshotter(ctx, &c1)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if c1.Snapshotter != "some-snapshotter" || c1.SnapshotKey != "some-key" {
+		t.Errorf("expected no changes, got Snapshotter=%q, SnapshotKey=%q", c1.Snapshotter, c1.SnapshotKey)
+	}
+
+	// Case 2: Snapshotter is empty, SnapshotKey is provided -> finds matching snapshotter
+	c2 := containers.Container{
+		ID:          "container-2",
+		Snapshotter: "",
+		SnapshotKey: "snap-resolved-key",
+	}
+	err = exp.(*explorer).resolveSnapshotter(ctx, &c2)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if c2.Snapshotter != "overlayfs" {
+		t.Errorf("expected Snapshotter to be resolved to 'overlayfs', got %q", c2.Snapshotter)
+	}
+	exp.Close() // Close explorer here so we can write to bolt DB below without blocking
+
+	// Case 3: Snapshotter is empty, SnapshotKey is empty -> walks and matches by container.ID
+	db, _ = bolt.Open(dbPath, 0644, nil)
+	_ = db.Update(func(tx *bolt.Tx) error {
+		return createMetaSnapshot(tx, "ns-resolve", "overlayfs", "container-3-key-pattern", "snap-name", "", now)
+	})
+	db.Close()
+
+	// Recreate explorer
+	exp, err = NewExplorer("some_image_root", containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to recreate explorer: %v", err)
+	}
+	defer exp.Close()
+
+	c3 := containers.Container{
+		ID:          "container-3",
+		Snapshotter: "",
+		SnapshotKey: "",
+	}
+	err = exp.(*explorer).resolveSnapshotter(ctx, &c3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if c3.Snapshotter != "overlayfs" || c3.SnapshotKey != "container-3-key-pattern" {
+		t.Errorf("expected Snapshotter='overlayfs' and SnapshotKey='container-3-key-pattern', got Snapshotter=%q, SnapshotKey=%q", c3.Snapshotter, c3.SnapshotKey)
+	}
+
+	// Case 4: No match -> fallback to overlayfs and container.ID
+	c4 := containers.Container{
+		ID:          "container-4",
+		Snapshotter: "",
+		SnapshotKey: "",
+	}
+	err = exp.(*explorer).resolveSnapshotter(ctx, &c4)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if c4.Snapshotter != "overlayfs" || c4.SnapshotKey != "container-4" {
+		t.Errorf("expected fallback to Snapshotter='overlayfs' and SnapshotKey='container-4', got Snapshotter=%q, SnapshotKey=%q", c4.Snapshotter, c4.SnapshotKey)
+	}
+
+	// Case 5: Missing namespace -> fallback to default and returns error
+	c5 := containers.Container{
+		ID:          "container-5",
+		Snapshotter: "",
+		SnapshotKey: "",
+	}
+	err = exp.(*explorer).resolveSnapshotter(context.Background(), &c5)
+	if err == nil {
+		t.Errorf("expected error when namespace is missing from context")
+	}
+	if c5.Snapshotter != "overlayfs" || c5.SnapshotKey != "container-5" {
+		t.Errorf("expected fallback on error, got Snapshotter=%q, SnapshotKey=%q", c5.Snapshotter, c5.SnapshotKey)
+	}
+}
+
+func TestGetContainerState(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerdRoot := filepath.Join(tmpDir, "containerd_root")
+	metaDir := filepath.Join(containerdRoot, "io.containerd.metadata.v1.bolt")
+	_ = os.MkdirAll(metaDir, 0755)
+	db, err := bolt.Open(filepath.Join(metaDir, "meta.db"), 0644, nil)
+	if err != nil {
+		t.Fatalf("failed to create meta.db: %v", err)
+	}
+	db.Close()
+
+	imageRoot := filepath.Join(tmpDir, "image_root")
+
+	sc, _ := explorers.NewSupportContainer("")
+	exp, err := NewExplorer(imageRoot, containerdRoot, "", "", sc)
+	if err != nil {
+		t.Fatalf("failed to create explorer: %v", err)
+	}
+	defer exp.Close()
+
+	ctr := explorers.Container{
+		Container: containers.Container{
+			ID: "container-state-test",
+		},
+		Namespace: "ns-state",
+	}
+
+	// Case 1: State directory does not exist -> error
+	_, err = exp.(*explorer).GetContainerState(context.Background(), ctr)
+	if err == nil {
+		t.Errorf("expected error when state directory is missing, got nil")
+	}
+
+	// Case 2: State directory exists, but state.json is missing -> error
+	stateDir := filepath.Join(imageRoot, "run", "containerd", "runc", "ns-state", "container-state-test")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatalf("failed to create state dir: %v", err)
+	}
+
+	_, err = exp.(*explorer).GetContainerState(context.Background(), ctr)
+	if err == nil {
+		t.Errorf("expected error when state.json is missing, got nil")
+	}
+
+	// Case 3: state.json is invalid JSON -> error
+	stateFile := filepath.Join(stateDir, "state.json")
+	if err := os.WriteFile(stateFile, []byte("{invalid-json"), 0600); err != nil {
+		t.Fatalf("failed to write state.json: %v", err)
+	}
+	_, err = exp.(*explorer).GetContainerState(context.Background(), ctr)
+	if err == nil {
+		t.Errorf("expected error when state.json is invalid JSON, got nil")
+	}
+
+	// Case 4: Success path
+	validJSON := `{
+		"init_process_pid": 54321,
+		"rootless": true
+	}`
+	if err := os.WriteFile(stateFile, []byte(validJSON), 0600); err != nil {
+		t.Fatalf("failed to write valid state.json: %v", err)
+	}
+
+	state, err := exp.(*explorer).GetContainerState(context.Background(), ctr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.InitProcessPid != 54321 {
+		t.Errorf("expected init_process_pid to be 54321, got %d", state.InitProcessPid)
+	}
+	if !state.Rootless {
+		t.Errorf("expected rootless to be true, got false")
 	}
 }
