@@ -4,7 +4,7 @@ go 1.25.10
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/containerd/containerd v1.7.32
+	github.com/containerd/containerd v1.7.33
 	github.com/containerd/containerd/v2 v2.2.5
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/gogo/protobuf v1.3.2
@@ -127,7 +127,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/opencontainers/cgroups v0.0.6 // indirect
-	github.com/opencontainers/runc v1.4.2 // indirect
+	github.com/opencontainers/runc v1.4.3 // indirect
 	github.com/opencontainers/runtime-tools v0.9.1-0.20260316125833-8a4db579f5c8 // indirect
 	github.com/opencontainers/selinux v1.14.1 // indirect
 	github.com/openshift/imagebuilder v1.2.21 // indirect
