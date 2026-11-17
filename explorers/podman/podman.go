@@ -384,6 +384,13 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, _ 
 	}
 
 	for _, container := range containers {
+		if err := utils.SafePathSegment(container.ID); err != nil {
+			log.WithFields(log.Fields{
+				"containerID": container.ID,
+				"error":       err,
+			}).Warn("invalid container ID; skipping container mount")
+			continue
+		}
 		containerMountPoint := filepath.Join(mountpoint, container.ID)
 		if err := os.MkdirAll(containerMountPoint, 0755); err != nil {
 			log.WithFields(log.Fields{
@@ -436,7 +443,11 @@ func (e *explorer) ContainerDrift(_ context.Context, _ string, _ bool, container
 				log.WithFields(log.Fields{"container": config.ID, "error": err}).Error("reading link file")
 				continue
 			}
-			upperDir := filepath.Join(overlayDir, "l", strings.TrimSpace(string(linkData)))
+			upperDir, err := utils.SafeJoin(overlayDir, "l", strings.TrimSpace(string(linkData)))
+			if err != nil {
+				log.WithFields(log.Fields{"container": config.ID, "error": err}).Warn("link file points outside overlay directory; skipping container")
+				continue
+			}
 			log.WithFields(log.Fields{"containerType": "podman", "containerID": config.ID, "upperdir": upperDir}).Debug("checking upper layer for drift")
 
 			// Scan upperdir
@@ -623,7 +634,17 @@ func (e *explorer) mountContainer(_ context.Context, podmanRootDir string, conta
 	if err != nil {
 		return fmt.Errorf("reading link file: %w", err)
 	}
-	upperDir := filepath.Join(overlayDir, "l", strings.TrimSpace(string(linkData)))
+	// The link file is image-authored content; constrain the resolved path to
+	// the overlay directory so a crafted value cannot reference host paths.
+	upperDir, err := utils.SafeJoin(overlayDir, "l", strings.TrimSpace(string(linkData)))
+	if err != nil {
+		return fmt.Errorf("invalid link file for layer %s: %w", layer, err)
+	}
+	// upperDir is interpolated into the mount -o string; reject overlay-option
+	// metacharacters so image-authored content cannot inject extra options.
+	if err := utils.SafeOverlayOptionPath(upperDir); err != nil {
+		return fmt.Errorf("invalid link file for layer %s: %w", layer, err)
+	}
 
 	// Lowerdir
 	lowerFile := filepath.Join(layerDir, "lower")
@@ -642,7 +663,20 @@ func (e *explorer) mountContainer(_ context.Context, podmanRootDir string, conta
 
 	var lowerDirs []string
 	for _, lowerDir := range strings.Split(strings.TrimSpace(string(lowerData)), ":") {
-		lowerDirs = append(lowerDirs, filepath.Join(overlayDir, lowerDir))
+		// Each lower entry is image-authored content; constrain it to the
+		// overlay directory so a crafted value cannot pull a host directory
+		// into the overlay lowerdir stack.
+		resolved, err := utils.SafeJoin(overlayDir, lowerDir)
+		if err != nil {
+			return fmt.Errorf("invalid lower entry for layer %s: %w", layer, err)
+		}
+		// resolved is interpolated into the mount -o string; reject
+		// overlay-option metacharacters so image-authored content cannot
+		// inject extra options.
+		if err := utils.SafeOverlayOptionPath(resolved); err != nil {
+			return fmt.Errorf("invalid lower entry for layer %s: %w", layer, err)
+		}
+		lowerDirs = append(lowerDirs, resolved)
 	}
 	lowerDir := strings.Join(lowerDirs, ":")
 

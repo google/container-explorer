@@ -24,9 +24,59 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
+
+// SafePathSegment validates that s is safe to use as a single path segment
+// (e.g. a container ID used as a directory name). It returns an error if s is
+// empty, is "." or "..", or contains a path separator. This protects callers
+// that build host paths from untrusted on-disk metadata against directory
+// traversal.
+func SafePathSegment(s string) error {
+	if s == "" {
+		return errors.New("empty path segment")
+	}
+	if s == "." || s == ".." {
+		return fmt.Errorf("path segment %q is a relative directory reference", s)
+	}
+	if strings.ContainsRune(s, '/') || strings.ContainsRune(s, '\\') || strings.ContainsRune(s, os.PathSeparator) {
+		return fmt.Errorf("path segment %q contains a path separator", s)
+	}
+	return nil
+}
+
+// SafeOverlayOptionPath verifies that p is safe to embed as a path value
+// inside an overlayfs mount-option string (e.g. "lowerdir=%s"). The kernel and
+// mount(8) tokenise the -o string on ',' and overlayfs splits lowerdir on ':',
+// so a path containing either character would let image-authored content inject
+// additional mount options (rw, upperdir=, workdir=, ...). Legitimate overlay2
+// link/lower entries are short alphanumeric IDs and never contain these
+// characters.
+func SafeOverlayOptionPath(p string) error {
+	if strings.ContainsAny(p, ",:") {
+		return fmt.Errorf("overlay path %q contains a mount-option metacharacter", p)
+	}
+	return nil
+}
+
+// SafeJoin joins base and parts using filepath.Join and verifies the resulting
+// cleaned path is still contained within base. It returns an error if the
+// result escapes base via ".." segments or an absolute path in parts. Callers
+// should use this when any element of parts is derived from untrusted on-disk
+// metadata (e.g. overlay link/lower files authored inside a container image).
+func SafeJoin(base string, parts ...string) (string, error) {
+	joined := filepath.Join(append([]string{base}, parts...)...)
+	rel, err := filepath.Rel(base, joined)
+	if err != nil {
+		return "", fmt.Errorf("computing relative path from %q to %q: %w", base, joined, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path %q escapes base directory %q", joined, base)
+	}
+	return joined, nil
+}
 
 // PathExists returns true if the specified file or directory exists.
 // This function follows symbolic links.
