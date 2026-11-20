@@ -30,6 +30,10 @@ import (
 
 // ExportContainerImage creates a raw disk image file of a container.
 func ExportContainerImage(ctx context.Context, containerID string, mountpoint string, outputDir string) error {
+	if err := SafePathSegment(containerID); err != nil {
+		return fmt.Errorf("refusing to export container with unsafe ID %q: %w", containerID, err)
+	}
+
 	var success bool
 	imageFileName := fmt.Sprintf("%s.raw", containerID)
 	imageFilePath := filepath.Join(outputDir, imageFileName)
@@ -200,6 +204,10 @@ func ExportContainerImage(ctx context.Context, containerID string, mountpoint st
 
 // ExportContainerArchive creates a .tar.gz archive of the content of the mountpoint.
 func ExportContainerArchive(ctx context.Context, containerID string, mountpoint string, outputDir string) error {
+	if err := SafePathSegment(containerID); err != nil {
+		return fmt.Errorf("refusing to export container with unsafe ID %q: %w", containerID, err)
+	}
+
 	var success bool
 	archiveFileName := fmt.Sprintf("%s.tar.gz", containerID)
 	archiveFilePath := filepath.Join(outputDir, archiveFileName)
