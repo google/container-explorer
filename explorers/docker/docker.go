@@ -456,19 +456,43 @@ func (e *explorer) mountDockerV2Container(_ context.Context, container ConfigFil
 	}
 
 	// Computing lowerdir for mounting
+	driverDir := filepath.Join(e.dockerRoot, container.Driver)
 	var lowerDirs []string
 	for _, ldir := range strings.Split(strings.TrimSpace(string(data)), ":") {
-		lowerDirs = append(lowerDirs, filepath.Join(e.dockerRoot, container.Driver, ldir))
+		// Each lower entry is image-authored content; constrain it to the
+		// driver directory so a crafted value cannot pull a host directory
+		// into the overlay lowerdir stack.
+		resolved, err := utils.SafeJoin(driverDir, ldir)
+		if err != nil {
+			return fmt.Errorf("invalid lower entry for mount-id %s: %w", mountID, err)
+		}
+		// resolved is interpolated into the mount -o string; reject
+		// overlay-option metacharacters so image-authored content cannot
+		// inject extra options.
+		if err := utils.SafeOverlayOptionPath(resolved); err != nil {
+			return fmt.Errorf("invalid lower entry for mount-id %s: %w", mountID, err)
+		}
+		lowerDirs = append(lowerDirs, resolved)
 	}
 	lowerDir := strings.Join(lowerDirs, ":")
 
 	// Getting upperdir for mounting
 	//nolint:gosec // G703: Path is constructed from trusted docker root and config
-	upperData, err := os.ReadFile(filepath.Join(e.dockerRoot, container.Driver, mountID, "link"))
+	upperData, err := os.ReadFile(filepath.Join(driverDir, mountID, "link"))
 	if err != nil {
 		return fmt.Errorf("reading link file %v", err)
 	}
-	upperDir := filepath.Join(e.dockerRoot, container.Driver, "l", strings.TrimSpace(string(upperData)))
+	// The link file is image-authored content; constrain the resolved path to
+	// the driver directory so a crafted value cannot reference host paths.
+	upperDir, err := utils.SafeJoin(driverDir, "l", strings.TrimSpace(string(upperData)))
+	if err != nil {
+		return fmt.Errorf("invalid link file for mount-id %s: %w", mountID, err)
+	}
+	// upperDir is interpolated into the mount -o string; reject overlay-option
+	// metacharacters so image-authored content cannot inject extra options.
+	if err := utils.SafeOverlayOptionPath(upperDir); err != nil {
+		return fmt.Errorf("invalid link file for mount-id %s: %w", mountID, err)
+	}
 
 	log.WithFields(log.Fields{
 		"lowerdir": lowerDir,
@@ -707,6 +731,14 @@ func (e *explorer) MountAllContainers(ctx context.Context, mountpoint string, fi
 		}
 
 		// Create mountpoint for each container
+		if err := utils.SafePathSegment(cecontainer.ID); err != nil {
+			log.WithFields(log.Fields{
+				"namespace":   cecontainer.Namespace,
+				"containerID": cecontainer.ID,
+				"error":       err,
+			}).Warn("invalid container ID; skipping container mount")
+			continue
+		}
 		ctrmountpoint := filepath.Join(mountpoint, cecontainer.ID)
 		if err := os.MkdirAll(ctrmountpoint, 0755); err != nil {
 			log.WithFields(log.Fields{
@@ -829,7 +861,14 @@ func (e *explorer) ContainerDrift(ctx context.Context, filter string, skipsuppor
 				}).Info("reading upperdir link file")
 				continue
 			}
-			upperDir = filepath.Join(e.dockerRoot, container.Driver, "l", strings.TrimSpace(string(linkData)))
+			upperDir, err = utils.SafeJoin(filepath.Join(e.dockerRoot, container.Driver), "l", strings.TrimSpace(string(linkData)))
+			if err != nil {
+				log.WithFields(log.Fields{
+					"containerID": container.ID,
+					"message":     err,
+				}).Warn("link file points outside overlay directory; skipping container")
+				continue
+			}
 
 		case "overlayfs":
 			upperDir, _, err = e.GetOverlayfsLayers("moby", container.ID)
