@@ -29,11 +29,20 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func hasControlChar(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
 // SafePathSegment validates that s is safe to use as a single path segment
-// (e.g. a container ID used as a directory name). It returns an error if s is
-// empty, is "." or "..", or contains a path separator. This protects callers
-// that build host paths from untrusted on-disk metadata against directory
-// traversal.
+// (e.g. a container ID or link ID used as a directory or filename). It returns
+// an error if s is empty, is "." or "..", contains a path separator, or
+// contains a control character. This protects callers that build host paths
+// from untrusted on-disk metadata against directory traversal.
 func SafePathSegment(s string) error {
 	if s == "" {
 		return errors.New("empty path segment")
@@ -43,6 +52,9 @@ func SafePathSegment(s string) error {
 	}
 	if strings.ContainsRune(s, '/') || strings.ContainsRune(s, '\\') || strings.ContainsRune(s, os.PathSeparator) {
 		return fmt.Errorf("path segment %q contains a path separator", s)
+	}
+	if hasControlChar(s) {
+		return fmt.Errorf("path segment %q contains a control character", s)
 	}
 	return nil
 }
@@ -55,8 +67,14 @@ func SafePathSegment(s string) error {
 // link/lower entries are short alphanumeric IDs and never contain these
 // characters.
 func SafeOverlayOptionPath(p string) error {
-	if strings.ContainsAny(p, ",:") {
+	if p == "" {
+		return errors.New("empty overlay path")
+	}
+	if strings.ContainsAny(p, `,:\"`) {
 		return fmt.Errorf("overlay path %q contains a mount-option metacharacter", p)
+	}
+	if hasControlChar(p) {
+		return fmt.Errorf("overlay path %q contains a control character", p)
 	}
 	return nil
 }
