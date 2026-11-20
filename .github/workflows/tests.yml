@@ -8,16 +8,20 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: '1.25.10'
           cache: true
@@ -28,7 +32,7 @@ jobs:
           sudo apt-get install -y libbtrfs-dev libgpgme-dev pkg-config
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: latest
           install-mode: goinstall
@@ -36,12 +40,13 @@ jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: '1.25.10'
           cache: true
@@ -58,3 +63,67 @@ jobs:
       - name: Display Coverage Summary
         run: |
           go tool cover -func=coverage.txt
+
+  oss-exit-gate-release:
+    name: Publish GitHub Release via OSS Exit Gate
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Authenticate to Google Cloud (OSS Exit Gate)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: 'projects/305452601764/locations/global/workloadIdentityPools/builders/providers/github'
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+      - name: Stage release artifacts and upload manifest to OSS Exit Gate
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG_NAME#v}"
+          ARCHIVE="container-explorer-${VERSION}.tar.gz"
+          git archive --format=tar.gz -o "$ARCHIVE" HEAD
+          if gcloud artifacts versions describe "${TAG_NAME}" \
+            --package="container-explorer" \
+            --project="oss-exit-gate-prod" \
+            --location="us" \
+            --repository="container-explorer--githubreleases" >/dev/null 2>&1; then
+            gcloud artifacts versions delete "${TAG_NAME}" \
+              --package="container-explorer" \
+              --project="oss-exit-gate-prod" \
+              --location="us" \
+              --repository="container-explorer--githubreleases" \
+              --quiet
+          fi
+          gcloud artifacts generic upload \
+            --project="oss-exit-gate-prod" \
+            --location="us" \
+            --repository="container-explorer--githubreleases" \
+            --package="container-explorer" \
+            --version="${TAG_NAME}" \
+            --source="$ARCHIVE"
+          cat <<EOF > manifest.json
+          {
+            "publish_all": false,
+            "publishing_groups": [
+              {
+                "packages": [
+                  {
+                    "name": "container-explorer",
+                    "version": "${TAG_NAME}"
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+          gcloud storage cp manifest.json \
+            "gs://oss-exit-gate-prod-projects-bucket/container-explorer/githubreleases/manifests/manifest-${TAG_NAME}-${RUN_ID}-${RUN_ATTEMPT}.json"
