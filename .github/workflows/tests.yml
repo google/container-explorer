@@ -19,13 +19,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.10'
+          go-version: '1.27.4'
           cache: true
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libbtrfs-dev libgpgme-dev pkg-config
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
@@ -43,13 +38,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.10'
+          go-version: '1.27.4'
           cache: true
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libbtrfs-dev libgpgme-dev pkg-config
 
       - name: Run Tests
         run: |

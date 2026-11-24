@@ -39,7 +39,6 @@ import (
 	"github.com/containerd/containerd/containers"
 	_ "github.com/mattn/go-sqlite3" // Required for sqlite3 driver
 	log "github.com/sirupsen/logrus"
-	"go.podman.io/podman/v6/libpod"
 	storageTypes "go.podman.io/storage/types"
 )
 
@@ -257,7 +256,7 @@ func (e *explorer) ListTasks(_ context.Context) ([]explorers.Task, error) {
 					return fmt.Errorf("reading container state row: %w", err)
 				}
 
-				var containerstate libpod.ContainerState
+				var containerstate containerState
 				if err := json.Unmarshal([]byte(stateJSON), &containerstate); err != nil {
 					return fmt.Errorf("unmarshalling podman container state json: %w", err)
 				}
