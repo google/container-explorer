@@ -8,7 +8,7 @@ Copyright: 2021-2026 Google LLC
 License: Apache-2.0
 
 Files: debian/*
-Copyright: 2026 Log2Timeline developers <log2timeline-dev@googlegroups.com>
+Copyright: 2026 container-explorer developers <container-explorer-dev@googlegroups.com>
 License: Apache-2.0
 
 Files: vendor/github.com/containerd/*
