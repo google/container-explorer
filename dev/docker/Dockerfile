@@ -1,9 +1,6 @@
 FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libbtrfs-dev \
-    libgpgme-dev \
-    pkg-config \
     build-essential \
     ca-certificates \
     curl \
@@ -13,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://go.dev/dl/go1.26.4.linux-amd64.tar.gz \
+RUN curl -fsSL https://go.dev/dl/go1.27.4.linux-amd64.tar.gz \
     | tar -xz -C /usr/local \
     && ln -sf /usr/local/go/bin/* /usr/local/bin/
 

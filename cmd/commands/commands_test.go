@@ -527,6 +527,20 @@ func TestGetContainerdDataDir(t *testing.T) {
 	if path != "/custom/containerd/root" {
 		t.Errorf("expected custom containerd root '/custom/containerd/root', got %q", path)
 	}
+
+	// Case 5: Realistic v3 TOML with plugins table and custom root
+	v3Config := `
+version = 3
+root = "/var/lib/custom-containerd"
+
+[plugins.'io.containerd.cri.v1.images']
+  snapshotter = "overlayfs"
+`
+	_ = os.WriteFile(filepath.Join(containerdConfigDir, "config.toml"), []byte(v3Config), 0600)
+	path = getContainerdDataDir(tmpDir)
+	if path != "/var/lib/custom-containerd" {
+		t.Errorf("expected custom containerd root '/var/lib/custom-containerd', got %q", path)
+	}
 }
 
 func TestGetFilterMap(t *testing.T) {

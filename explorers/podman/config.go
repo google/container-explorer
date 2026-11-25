@@ -50,3 +50,49 @@ type containerImage struct {
 	BigDataDigests []string       `json:"big-data-digests"`
 	Created        string         `json:"created"`
 }
+
+// containerStatus mirrors go.podman.io/podman/v6/libpod/define.ContainerStatus
+// so Podman SQLite ContainerState rows can be decoded without importing libpod.
+type containerStatus int
+
+const (
+	containerStateUnknown containerStatus = iota
+	containerStateConfigured
+	containerStateCreated
+	containerStateRunning
+	containerStateStopped
+	containerStatePaused
+	containerStateExited
+	containerStateRemoving
+	containerStateStopping
+)
+
+func (s containerStatus) String() string {
+	switch s {
+	case containerStateUnknown:
+		return "unknown"
+	case containerStateConfigured:
+		return "created"
+	case containerStateCreated:
+		return "initialized"
+	case containerStateRunning:
+		return "running"
+	case containerStateStopped:
+		return "stopped"
+	case containerStatePaused:
+		return "paused"
+	case containerStateExited:
+		return "exited"
+	case containerStateRemoving:
+		return "removing"
+	case containerStateStopping:
+		return "stopping"
+	default:
+		return "bad state"
+	}
+}
+
+type containerState struct {
+	State containerStatus `json:"state"`
+	PID   int             `json:"pid,omitempty"`
+}

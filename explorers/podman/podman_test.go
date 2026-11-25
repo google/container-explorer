@@ -529,6 +529,30 @@ func TestListTasks(t *testing.T) {
 	}
 }
 
+func TestContainerStatusString(t *testing.T) {
+	tests := []struct {
+		status containerStatus
+		want   string
+	}{
+		{containerStateUnknown, "unknown"},
+		{containerStateConfigured, "created"},
+		{containerStateCreated, "initialized"},
+		{containerStateRunning, "running"},
+		{containerStateStopped, "stopped"},
+		{containerStatePaused, "paused"},
+		{containerStateExited, "exited"},
+		{containerStateRemoving, "removing"},
+		{containerStateStopping, "stopping"},
+		{containerStatus(99), "bad state"},
+	}
+
+	for _, tc := range tests {
+		if got := tc.status.String(); got != tc.want {
+			t.Errorf("containerStatus(%d).String() = %q, want %q", tc.status, got, tc.want)
+		}
+	}
+}
+
 func TestInfoContainer(t *testing.T) {
 	tmpDir := t.TempDir()
 	createMockPasswd(t, tmpDir, []string{"mockuser:x:1000:1000:Mock User:/home/mockuser:/bin/bash"})

@@ -23,12 +23,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/google/container-explorer/explorers"
-	"github.com/urfave/cli"
-
-	containerdConfig "github.com/containerd/containerd/services/server/config"
-	dockerConfig "github.com/docker/docker/daemon/config"
 	log "github.com/sirupsen/logrus"
+	"github.com/urfave/cli"
 )
 
 const (
@@ -126,7 +124,9 @@ func getDockerDataRoot(imageRootDir string) string {
 		return defaultDockerRootDir
 	}
 
-	var cfg dockerConfig.Config
+	var cfg struct {
+		Root string `json:"data-root"`
+	}
 
 	err = json.Unmarshal(data, &cfg)
 	if err != nil {
@@ -150,9 +150,11 @@ func getContainerdDataDir(imageRootDir string) string {
 		return defaultContainerdRootDir
 	}
 
-	var cfg containerdConfig.Config
+	var cfg struct {
+		Root string `toml:"root"`
+	}
 
-	if err := containerdConfig.LoadConfig(configPath, &cfg); err != nil {
+	if _, err := toml.DecodeFile(configPath, &cfg); err != nil {
 		log.WithFields(log.Fields{"configPath": configPath, "error": err}).Debug("parsing containerd config")
 		return defaultContainerdRootDir
 	}
