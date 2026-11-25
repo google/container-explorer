@@ -1,0 +1,5 @@
+container-explorer (0.6.1-1ppa1~resolute) resolute; urgency=low
+
+  * Initial GIFT PPA release for Ubuntu 26.04 (resolute).
+
+ -- container-explorer developers <container-explorer-dev@googlegroups.com>  Wed, 25 Nov 2026 12:50:00 +1100

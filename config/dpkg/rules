@@ -1,0 +1,32 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export CGO_ENABLED = 1
+export GOPROXY = off
+export GOTOOLCHAIN = local
+export GOCACHE = $(CURDIR)/.gocache
+export GOPATH = $(CURDIR)/.gopath
+export GOMODCACHE = $(CURDIR)/.gomodcache
+
+export CGO_CFLAGS   := $(shell dpkg-buildflags --get CFLAGS)
+export CGO_CPPFLAGS := $(shell dpkg-buildflags --get CPPFLAGS)
+export CGO_LDFLAGS  := $(shell dpkg-buildflags --get LDFLAGS)
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	mkdir -p build
+	go build -mod=vendor -trimpath -buildmode=pie -v -o build/container-explorer ./cmd
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	go test -mod=vendor -count=1 ./...
+endif
+
+# dwz does not reliably support Go DWARF debug sections across Ubuntu releases.
+override_dh_dwz:
+
+override_dh_auto_clean:
+	rm -rf build $(GOCACHE) $(GOPATH) $(GOMODCACHE)

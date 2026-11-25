@@ -1,0 +1,2 @@
+build/container-explorer usr/bin
+supportcontainer.yaml etc/container-explorer

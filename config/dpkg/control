@@ -1,0 +1,29 @@
+Source: container-explorer
+Section: utils
+Priority: optional
+Maintainer: container-explorer developers <container-explorer-dev@googlegroups.com>
+Build-Depends: debhelper-compat (= 13),
+               golang-go (>= 2:1.25~)
+Standards-Version: 4.7.2
+Homepage: https://github.com/google/container-explorer
+Vcs-Browser: https://github.com/google/container-explorer
+Vcs-Git: https://github.com/google/container-explorer.git
+Rules-Requires-Root: no
+
+Package: container-explorer
+Architecture: linux-any
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         e2fsprogs,
+         gzip,
+         mount,
+         tar,
+         util-linux
+Description: Offline forensic explorer for container runtimes
+ Container Explorer is a standalone utility for exploring and analyzing
+ container runtimes (containerd, Docker, and Podman) completely offline
+ without running container daemons.
+ .
+ It parses metadata databases and storage layers directly on disk, supporting
+ listing containers/images/tasks, inspecting OCI specs, mounting container
+ filesystems, detecting filesystem drift, and exporting container filesystems.
