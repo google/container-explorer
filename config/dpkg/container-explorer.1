@@ -1,0 +1,79 @@
+.TH CONTAINER-EXPLORER 1 "" "container-explorer" "User Commands"
+.SH NAME
+container-explorer \- offline forensic explorer for container runtimes
+.SH SYNOPSIS
+.B container-explorer
+[\fIGLOBAL OPTIONS\fR] \fICOMMAND\fR [\fICOMMAND OPTIONS\fR] [\fIARGUMENTS\fR...]
+.SH DESCRIPTION
+.B container-explorer
+explores, analyzes, and performs digital forensics on containerd, Docker, and
+Podman storage directories offline without running container daemons.
+.SH GLOBAL OPTIONS
+.TP
+.BR \-d ", " \-\-debug
+Enable debug log messages.
+.TP
+.BR \-i ", " \-\-image\-root " " \fIPATH\fR
+Mount point for an offline disk image.
+.TP
+.BR \-c ", " \-\-containerd\-root " " \fIPATH\fR
+Containerd root directory.
+.TP
+.BR \-D ", " \-\-docker\-root " " \fIPATH\fR
+Docker root directory.
+.TP
+.BR \-u ", " \-\-use\-layer\-cache
+Use cached layers where layers are symlinks.
+.TP
+.BR \-l ", " \-\-layer\-cache " " \fINAME\fR
+Cached layer folder within the snapshot root (default: \fBlayers\fR).
+.TP
+.BR \-s ", " \-\-support\-container\-data " " \fIFILE\fR
+YAML file listing Kubernetes support container rules (for example,
+\fI/etc/container-explorer/supportcontainer.yaml\fR).
+.TP
+.BR \-\-output " " \fIFORMAT\fR
+Output format: \fBtable\fR (default) or \fBjson\fR.
+.TP
+.BR \-o ", " \-\-output\-file " " \fIFILE\fR
+Write output to the given file.
+.TP
+.BR \-h ", " \-\-help
+Show help text.
+.TP
+.BR \-v ", " \-\-version
+Show version information.
+.SH COMMANDS
+.TP
+.BR list " (" ls ")"
+List \fBnamespaces\fR, \fBcontainers\fR, \fBimages\fR, \fBcontents\fR,
+\fBsnapshots\fR, or \fBtasks\fR.
+.TP
+.BR info ", " inspect
+Display container metadata and OCI runtime specifications.
+.TP
+.BR mount
+Mount a container's merged filesystem to a target directory.
+.TP
+.BR drift " (" diff ")"
+Report added, modified, and newly introduced executable files relative to the
+base image.
+.TP
+.BR export
+Export a container filesystem as a raw ext4 image (\fB.raw\fR) or gzipped tar
+archive (\fB.tar.gz\fR).
+.SH FILES
+.TP
+.I /etc/container-explorer/supportcontainer.yaml
+Packaged Kubernetes support container criteria file.
+.SH EXAMPLES
+.PP
+.RS
+sudo container-explorer \-\-image-root /mnt/disk1 list containers
+.br
+sudo container-explorer \-\-image-root /mnt/disk1 \-\-output json drift <id>
+.br
+sudo container-explorer \-\-image-root /mnt/disk1 export \-a <id> /tmp/exports/
+.RE
+.SH SEE ALSO
+Upstream documentation at https://github.com/google/container-explorer.
