@@ -4,8 +4,8 @@ go 1.25.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/containerd/containerd v1.7.33
-	github.com/containerd/containerd/v2 v2.2.8
+	github.com/containerd/containerd v1.7.36
+	github.com/containerd/containerd/v2 v2.2.10
 	github.com/gogo/protobuf v1.3.2
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/opencontainers/go-digest v1.0.0
